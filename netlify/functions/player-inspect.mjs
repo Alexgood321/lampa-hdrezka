@@ -34,6 +34,8 @@ export default async function handler() {
       initCDNSeriesEvents:html.includes("initCDNSeriesEvents"),
       initCDNMoviesEvents:html.includes("initCDNMoviesEvents"),
       initCDNGeneric:/initCDN/i.test(html),
+      exactPluginRegex:/initCDN(?:Series|Movies)Events\(\s*(\d+)\s*,\s*(\d+)\s*,\s*([01])\s*,\s*([01])\s*(?:,\s*([01]))?/.test(html),
+      simplifiedInitRegex:/initCDN(?:Series|Movies)Events\s*\(\s*(\d+)\s*,\s*(\d+)/.test(html),
       getCdnSeries:html.includes("get_cdn_series"),
       bPlayer:/b-player/.test(html),
       translatorList:/b-translator__list/.test(html),
