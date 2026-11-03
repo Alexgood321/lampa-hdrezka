@@ -20,7 +20,7 @@
 
 1. Загрузите файл `rezka.js` на любой публично доступный HTTPS-хост (GitHub Pages, ваш сервер, gist в raw-режиме и т. п.). Запомните прямую ссылку, например:
    ```
-   https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@main/rezka.js?v=1.1.0
+   https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@8659f4068421769b0fa774d3c12516d3016f4d28/rezka.js
    ```
 2. Откройте Lampa → **Настройки** → **Расширения** → **Добавить плагин**.
 3. Вставьте URL, нажмите **Готово**, проверьте статус — должен быть `200`.
