@@ -79,7 +79,7 @@ function harness(config = {}) {
     },
     Controller: {add(){},toggle(){},collectionSet(){},collectionFocus(){},enable(){}},
     Background: {immediately(){}},
-    Utils: {cardImgBackgroundBlur(){return '';},escape(s){return String(s)}},
+    Utils: {cardImgBackgroundBlur(){return '';}},
     Noty: {show(s){errors.push(String(s))}},
     Api: {
       search(params,cb){config.searchQuery=params.query;cb(config.searchAnswer||{});}
@@ -123,7 +123,8 @@ test('watch activity initializes itself once and renders an episode item', ()=>{
   assert.ok(h.scrolls[0].elements.length>0);
   const page=h.scrolls[0].elements[0];
   assert.ok(page.children.length>0,'film entries must be rendered');
-  assert.match(page.children[0].markup,/online/);
+  assert.match(page.children[0].markup,/online selector/);
+  assert.equal(page.children[0].children[0].content,'Смотреть фильм');
   h.config.view.start();
   assert.equal(h.calls.length,1,'no second request when restoring activity');
 });
@@ -176,5 +177,22 @@ test('series player accepts modern initializer with numeric flag 2 and class var
   assert.equal(h.errors.length,0,'modern series page must not trigger parse error');
   const page=h.scrolls[0].elements[0];
   assert.equal(page.children.length,1,'one episode is rendered');
-  assert.match(page.children[0].markup,/1 серия/);
+  assert.match(page.children[0].markup,/online selector/);
+  assert.equal(page.children[0].children[0].content,'1 серия');
+  assert.ok(!h.errors.some(e=>/escape/.test(e)),'no dependence on Lampa.Utils.escape');
+  assert.ok(h.config.view,'activity must remain usable');
+});
+
+
+test('episode title with untrusted HTML is rendered as text, never parsed into markup',()=>{
+  const input='<img src=x onerror=alert(1)>';
+  const response='<script>sof.tv.initCDNSeriesEvents(51560, 457, 2, 0, false, "mirror");</script>' +
+    '<ul class="b-simple_seasons__list"><li class="b-simple_season__item" data-tab_id="1">1 сезон</li></ul>' +
+    '<ul class="b-simple_episodes__list"><li class="b-simple_episode__item" data-season_id="1" data-episode_id="1">' + input + '</li></ul>';
+  const h=harness({response});
+  h.Lampa.Activity.push({component:'rezka_online',
+    movie:{title:'Пример',rezka_url:'https://flymaterez.net/series/fiction/example.html'}});
+  const row=h.scrolls[0].elements[0].children[0];
+  assert.equal(row.children[0].content,'1 серия');
+  assert.ok(!row.markup.includes('onerror'),'row markup must not contain untrusted HTML');
 });
