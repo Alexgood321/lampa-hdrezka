@@ -1,0 +1,18 @@
+services:
+  rezka-bridge:
+    build: .
+    restart: unless-stopped
+    environment:
+      REZKA_ORIGIN: "${REZKA_ORIGIN:?Set REZKA_ORIGIN}"
+      REZKA_BRIDGE_TOKEN: "${REZKA_BRIDGE_TOKEN:?Set REZKA_BRIDGE_TOKEN}"
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: 8787
+    ports:
+      - "127.0.0.1:8787:8787"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
