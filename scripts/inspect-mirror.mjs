@@ -20,3 +20,23 @@ const inputs=[...body.matchAll(/<input\b[^>]*>/gi)].slice(0,20).map(a=>({
 const scripts=[...body.matchAll(/<script\b[^>]*>/gi)].slice(0,35).map(a=>attr(a[0],"src")).filter(Boolean);
 const meta={status:r.status,location:r.headers.get("location"),htmlLength:body.length,title:(body.match(/<title[^>]*>([\s\S]*?)<\/title>/i)||[])[1],forms,inputs,scripts};
 console.log("MIRROR_PUBLIC_LOGIN_STRUCTURE:"+JSON.stringify(meta,null,2));
+
+
+const inlineScripts=[...body.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].slice(0,30).filter(x=>!/<script\b[^>]*src\s*=/i.test(x[0])).map(x=>x[1]);
+const clues=["loginForm","loginSubmit","login_password","/ajax/login/","csrf","login_not_save","DOMContentLoaded"];
+const fragments=[];
+for(const code of inlineScripts){
+  for(const needle of clues){
+    const index=code.indexOf(needle);
+    if(index>=0){fragments.push({source:"inline",needle,content:code.slice(Math.max(0,index-500),index+650)});}
+  }
+}
+const scriptURL=new URL("/j/andt.js",target);
+const asset=await fetch(scriptURL,{signal:AbortSignal.timeout(16000),headers:{"User-Agent":"Mozilla/5.0"}});
+const assetBody=(await asset.text()).slice(0,350000);
+const assetFragments=[];
+for(const needle of clues){
+ const index=assetBody.indexOf(needle);
+ if(index>=0)assetFragments.push({needle,content:assetBody.slice(Math.max(0,index-500),index+650)});
+}
+console.log("LOGIN_SCRIPT_HINTS:"+JSON.stringify({inlineCount:inlineScripts.length,fragments:fragments.slice(0,15),assetStatus:asset.status,assetSize:assetBody.length,assetFragments},null,2));
