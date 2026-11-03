@@ -1,0 +1,16 @@
+name: Investigate closed mirror login
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect public mirror login form without submitting credentials
+        run: node scripts/inspect-mirror.mjs
