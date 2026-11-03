@@ -21,9 +21,9 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.0.1',
+        version: '1.1.0',
         name: 'HDREZKA',
-        description: 'Просмотр фильмов и сериалов с HDREZKA по личному аккаунту',
+        description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
     };
 
@@ -74,7 +74,7 @@
     }
 
     function isLoggedIn() {
-        return Lampa.Storage.get(STORAGE.status) === 'logged' && !!getCookie();
+        return Lampa.Storage.get(STORAGE.status) === 'logged';
     }
 
     function buildHeaders(extra) {
@@ -85,8 +85,7 @@
             'Referer': getDomain() + '/',
             'X-Requested-With': 'XMLHttpRequest'
         };
-        var ck = getCookie();
-        if (ck) headers['Cookie'] = ck;
+        // Браузер сам отправляет cookies HDRezka; вручную заголовок Cookie запрещён.
         if (extra) for (var k in extra) headers[k] = extra[k];
         return headers;
     }
@@ -192,7 +191,6 @@
             xhr.open('POST', url, true);
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.setRequestHeader('Referer', getDomain() + '/');
             xhr.withCredentials = true;
             xhr.timeout = 15000;
             xhr.onload = function () {
@@ -204,42 +202,47 @@
                 } catch (e) { msg = 'Некорректный ответ сервера'; }
 
                 if (ok) {
-                    // Try to read Set-Cookie. In a browser this is blocked;
-                    // we therefore read document.cookie which the server set
-                    // (the request was same-origin via the proxy / direct).
-                    var cookieStr = '';
-                    try {
-                        cookieStr = document.cookie || '';
-                    } catch (e) {}
-                    // Filter to dle_* cookies only
-                    var dle = cookieStr.split(';').map(function (s) { return s.trim(); })
-                        .filter(function (s) { return /^dle_(user_id|password|hash|forum_sessions)=/.test(s); })
-                        .join('; ');
-
-                    Lampa.Storage.set(STORAGE.cookie, dle);
-                    Lampa.Storage.set(STORAGE.status, 'logged');
-                    cb(true, 'Успешный вход');
+                    // document.cookie здесь принадлежит Lampa, а НЕ домену HDRezka.
+                    // success login не означает, что WebView сохранил сессию.
+                    rezkaFetchFavorites('/favorites/', function (error, html) {
+                        var parsed = error ? null : rezkaParseFavorites(html, 1);
+                        Lampa.Storage.set(STORAGE.password, '');
+                        if (error || parsed.error) {
+                            var why = error || parsed.error;
+                            Lampa.Storage.set(STORAGE.status, 'error:' + why);
+                            cb(false, 'Вход принят, но сессия недоступна: ' + why);
+                        } else {
+                            Lampa.Storage.set(STORAGE.cookie, '');
+                            Lampa.Storage.set(STORAGE.status, 'logged');
+                            cb(true, 'Вход и доступ к избранному подтверждены');
+                        }
+                    });
                 } else {
+                    Lampa.Storage.set(STORAGE.password, '');
                     Lampa.Storage.set(STORAGE.status, 'error:' + (msg || 'login failed'));
                     cb(false, msg || 'Не удалось войти');
                 }
             };
             xhr.onerror = function () {
+                Lampa.Storage.set(STORAGE.password, '');
                 Lampa.Storage.set(STORAGE.status, 'error:network');
                 cb(false, 'Сетевая ошибка');
             };
             xhr.ontimeout = function () {
+                Lampa.Storage.set(STORAGE.password, '');
                 Lampa.Storage.set(STORAGE.status, 'error:timeout');
                 cb(false, 'Превышено время ожидания');
             };
             xhr.send(post);
         } catch (e) {
+            Lampa.Storage.set(STORAGE.password, '');
             cb(false, 'Ошибка: ' + e.message);
         }
     }
 
     function logout() {
         Lampa.Storage.set(STORAGE.cookie, '');
+        Lampa.Storage.set(STORAGE.password, '');
         Lampa.Storage.set(STORAGE.status, 'guest');
     }
 
@@ -287,7 +290,7 @@
      *  Parse film page → translators / seasons / film_id
      * ==================================================== */
     function fetchFilmPage(filmUrl, cb, err) {
-        request({ url: proxify(filmUrl), dataType: 'text' }, function (str) {
+        request({ url: proxify(rezkaSiteURL(filmUrl) || filmUrl), dataType: 'text' }, function (str) {
             var info = {
                 film_id: '',
                 is_series: false,
@@ -401,7 +404,6 @@
             xhr.open('POST', url, true);
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.setRequestHeader('Referer', getDomain() + '/');
             xhr.withCredentials = true;
             xhr.timeout = 15000;
             xhr.onload = function () {
@@ -587,19 +589,11 @@
 
         this.initialize = function () {
             this.activity.loader(true);
-
             var movie = object.movie || {};
             var title = movie.title || movie.name || '';
-            var year = (movie.release_date || movie.first_air_date || '').slice(0, 4);
-
-            searchRezka(title, year, function (results) {
-                if (!results.length) {
-                    self.activity.loader(false);
-                    showError('Ничего не найдено на HDREZKA');
-                    self.activity.toggle();
-                    return;
-                }
-                fetchFilmPage(results[0].url, function (info) {
+            var year = String(movie.release_date || movie.first_air_date || movie.year || '').slice(0, 4);
+            function load(url) {
+                fetchFilmPage(url, function (info) {
                     state.info = info;
                     self.activity.loader(false);
                     buildFilter();
@@ -610,6 +604,20 @@
                     showError(msg);
                     self.activity.toggle();
                 });
+            }
+            // Сохранённая ссылка HDRezka точнее поиска по названию.
+            if (movie.rezka_url) {
+                var direct = rezkaSiteURL(movie.rezka_url);
+                if (direct) { load(direct); return; }
+            }
+            searchRezka(title, year, function (items) {
+                if (!items.length) {
+                    self.activity.loader(false);
+                    showError('Ничего не найдено на HDREZKA');
+                    self.activity.toggle();
+                    return;
+                }
+                load(items[0].url);
             });
         };
     }
@@ -706,6 +714,262 @@
         });
     }
 
+
+    /* ====================================================
+     * HDRezka Favorites: collections and items from /favorites/
+     * ==================================================== */
+    function rezkaSiteURL(href) {
+        try {
+            var root = new URL(getDomain());
+            var url = new URL(String(href || ''), root.href + '/');
+            if (!/^https?:$/.test(url.protocol) || url.host !== root.host) return '';
+            return url.href;
+        } catch (e) { return ''; }
+    }
+
+    function rezkaPosterURL(href) {
+        try {
+            var url = new URL(String(href || ''), getDomain() + '/');
+            return /^https?:$/.test(url.protocol) ? url.href : '';
+        } catch (e) { return ''; }
+    }
+
+    function rezkaFetchFavorites(path, done) {
+        var url = rezkaSiteURL(path);
+        if (!url) { done('Некорректный адрес коллекции'); return null; }
+        var xhr = new XMLHttpRequest();
+        try {
+            xhr.open('GET', proxify(url), true);
+            xhr.withCredentials = true;
+            xhr.timeout = 15000;
+            xhr.onload = function () {
+                done(xhr.status >= 200 && xhr.status < 300 ? null : 'HTTP ' + xhr.status, xhr.responseText || '');
+            };
+            xhr.onerror = function () { done('CORS или ошибка сети, проверьте зеркало и прокси'); };
+            xhr.ontimeout = function () { done('Таймаут загрузки избранного'); };
+            xhr.send();
+        } catch (e) { done(e.message || 'Ошибка запроса'); }
+        return xhr;
+    }
+
+    function rezkaParseFavorites(html, page) {
+        var out = { cats: [], items: [], next: false, error: '' };
+        var doc;
+        try { doc = new DOMParser().parseFromString(String(html || ''), 'text/html'); }
+        catch (e) { out.error = 'Ошибка HTML'; return out; }
+        if (doc.querySelector('#challenge-form, .cf-challenge') ||
+            /just a moment|checking your browser|attention required/i.test(doc.title || '')) {
+            out.error = 'Cloudflare заблокировал страницу'; return out;
+        }
+        if (doc.querySelector('form[action*="login"] input[name="login_password"]')) {
+            out.error = 'Сессия истекла, войдите повторно'; return out;
+        }
+        var categories = doc.querySelectorAll('a.b-favorites_content__cats_list_link');
+        for (var i = 0; i < categories.length; i++) {
+            var link = categories[i], url = rezkaSiteURL(link.getAttribute('href'));
+            var id = url && new URL(url).pathname.match(/^\/favorites\/(\d+)\/?$/);
+            if (!id) continue;
+            var name = link.querySelector('.name'), count = link.querySelector('.num-holder');
+            out.cats.push({ id: id[1], name: (name ? name.textContent : link.textContent).trim(),
+                count: count ? count.textContent.trim() : '' });
+        }
+        var cards = doc.querySelectorAll('.b-content__inline_item');
+        for (var j = 0; j < cards.length; j++) {
+            var card = cards[j], a = card.querySelector('.b-content__inline_item-link a[href]');
+            if (!a) continue;
+            var href = rezkaSiteURL(a.getAttribute('href'));
+            if (!href) continue;
+            var picture = card.querySelector('.b-content__inline_item-cover img');
+            var meta = card.querySelector('.b-content__inline_item-link div');
+            var year = (meta && meta.textContent || '').match(/\b(?:19|20)\d{2}\b/);
+            var title = (a.getAttribute('title') || a.textContent || '').trim();
+            if (!title) continue;
+            out.items.push({
+                title: title, year: year ? year[0] : '', url: href,
+                poster: picture ? rezkaPosterURL(picture.getAttribute('data-src') ||
+                    picture.getAttribute('data-original') || picture.getAttribute('src')) : ''
+            });
+        }
+        var links = doc.querySelectorAll('.b-navigation a[href], .b-pagination a[href]');
+        for (var k = 0; k < links.length; k++) {
+            var next = rezkaSiteURL(links[k].getAttribute('href'));
+            if (next && new RegExp('/page/' + (page + 1) + '/?(?:$|[?#])').test(next)) {
+                out.next = true; break;
+            }
+        }
+        if (!doc.querySelector('.b-favorites_content, .b-favorites_content__cats_list_link, .b-content__inline_item') &&
+            !doc.querySelector('a[href*="/logout/"], .b-header__user')) {
+            out.error = 'Не удалось подтвердить доступ к избранному';
+        }
+        return out;
+    }
+
+    function rezkaFavoritesOpen(category, page) {
+        Lampa.Activity.push({
+            url: '', title: 'Избранное HDRezka', component: 'rezka_favorites',
+            rezka_category: category || '', rezka_page: page || 1, page: 1
+        });
+    }
+
+    function rezkaOpenLampaCard(item) {
+        var name = item.title;
+        if (Lampa.Api && typeof Lampa.Api.search === 'function') {
+            Lampa.Api.search({ query: encodeURIComponent(name) }, function (answer) {
+                var results = answer && answer.results || [];
+                function norm(x) { return String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]/g, ''); }
+                var found = results.filter(function (x) {
+                    var year = (x.release_date || x.first_air_date || '').slice(0, 4);
+                    return (norm(x.title) === norm(name) || norm(x.name) === norm(name) ||
+                        norm(x.original_title) === norm(name)) &&
+                        (!item.year || !year || Math.abs(Number(item.year) - Number(year)) <= 1);
+                })[0];
+                if (found) {
+                    Lampa.Activity.push({
+                        url: '', component: 'full', id: found.id,
+                        method: found.name ? 'tv' : 'movie', card: found, page: 1
+                    });
+                } else rezkaOpenLampaSearch(name);
+            }, function () { rezkaOpenLampaSearch(name); });
+        } else rezkaOpenLampaSearch(name);
+    }
+
+    function rezkaOpenLampaSearch(query) {
+        if (Lampa.Search && Lampa.Search.open) Lampa.Search.open({ input: query });
+        else Lampa.Activity.push({
+            url: 'search/multi?query=' + encodeURIComponent(query),
+            title: 'Поиск: ' + query, component: 'category_full',
+            source: 'tmdb', page: 1
+        });
+    }
+
+    function rezkaFavoritesComponent(object) {
+        var scroll = new Lampa.Scroll({ mask: true, over: true });
+        var explorer = new Lampa.Explorer(object);
+        var html = $('<div class="rezka-fav-page"></div>');
+        var xhr = null, destroyed = false, self = this;
+        this.create = function () {
+            scroll.minus();
+            explorer.appendFiles(scroll.render());
+            return this.render();
+        };
+        this.render = function () { return explorer.render(); };
+        this.start = function () {
+            if (Lampa.Activity.active().activity !== this.activity) return;
+            Lampa.Controller.add('content', {
+                toggle: function () {
+                    Lampa.Controller.collectionSet(scroll.render(), explorer.render());
+                    Lampa.Controller.collectionFocus(false, scroll.render());
+                },
+                up: function () {
+                    if (Navigator.canmove('up')) Navigator.move('up');
+                    else Lampa.Controller.toggle('head');
+                },
+                down: function () { Navigator.move('down'); },
+                left: function () { Lampa.Controller.toggle('menu'); },
+                right: function () { Navigator.move('right'); },
+                back: this.back
+            });
+            Lampa.Controller.toggle('content');
+        };
+        this.pause = function () {};
+        this.stop = function () {};
+        this.back = function () { Lampa.Activity.backward(); };
+        this.destroy = function () {
+            destroyed = true;
+            if (xhr) xhr.abort();
+            scroll.destroy();
+            explorer.destroy();
+            html.remove();
+        };
+        function row(title, description, poster, click) {
+            var e = $('<div class="online selector rezka-fav-row"></div>');
+            if (poster) $('<img class="rezka-fav-cover" alt="">').attr('src', poster).appendTo(e);
+            var info = $('<div></div>').appendTo(e);
+            $('<div class="online__title"></div>').text(title).appendTo(info);
+            if (description) $('<div class="online__quality"></div>').text(description).appendTo(info);
+            e.on('hover:enter', click).appendTo(html);
+        }
+        function finish(message) {
+            if (destroyed) return;
+            if (message) $('<div class="rezka-fav-msg"></div>').text(message).appendTo(html);
+            scroll.append(html);
+            self.activity.loader(false);
+            self.activity.toggle();
+        }
+        this.initialize = function () {
+            self.activity.loader(true);
+            var cat = object.rezka_category || '';
+            var page = Math.max(1, parseInt(object.rezka_page, 10) || 1);
+            var root = !cat;
+            var path = '/favorites/' + (/^\d+$/.test(cat) ? cat + '/' : '');
+            if (page > 1) path += 'page/' + page + '/';
+            xhr = rezkaFetchFavorites(path, function (error, response) {
+                if (destroyed) return;
+                if (error) { finish(error); return; }
+                var data = rezkaParseFavorites(response, page);
+                if (data.error) {
+                    Lampa.Storage.set(STORAGE.status, 'error:' + data.error);
+                    finish(data.error); return;
+                }
+                Lampa.Storage.set(STORAGE.status, 'logged');
+                if (root) {
+                    if (data.items.length) row('Все избранное', 'Общий список', '', function () {
+                        rezkaFavoritesOpen('all', 1);
+                    });
+                    data.cats.forEach(function (category) {
+                        row(category.name, category.count ? category.count + ' элементов' : 'Коллекция', '', function () {
+                            rezkaFavoritesOpen(category.id, 1);
+                        });
+                    });
+                    finish(data.cats.length || data.items.length ? '' : 'В аккаунте нет избранного.');
+                    return;
+                }
+                data.items.forEach(function (item) {
+                    row(item.title, item.year, item.poster, function () {
+                        Lampa.Select.show({
+                            title: item.title,
+                            items: [
+                                { title: 'Смотреть на HDRezka', action: 'watch' },
+                                { title: 'Открыть карточку Lampa', action: 'card' }
+                            ],
+                            onBack: function () { Lampa.Controller.toggle('content'); },
+                            onSelect: function (selected) {
+                                if (selected.action === 'card') rezkaOpenLampaCard(item);
+                                else openRezka({ title: item.title, year: item.year, rezka_url: item.url });
+                            }
+                        });
+                    });
+                });
+                if (page > 1) row('← Предыдущая страница', '', '', function () {
+                    rezkaFavoritesOpen(cat, page - 1);
+                });
+                if (data.next) row('Следующая страница →', '', '', function () {
+                    rezkaFavoritesOpen(cat, page + 1);
+                });
+                finish(data.items.length ? '' : 'Коллекция пуста.');
+            });
+        };
+    }
+
+    function rezkaFavoritesRegister() {
+        Lampa.Component.add('rezka_favorites', rezkaFavoritesComponent);
+        if (!document.getElementById('rezka-fav-style')) {
+            var style = document.createElement('style');
+            style.id = 'rezka-fav-style';
+            style.textContent = '.rezka-fav-page{padding:.5em 0}' +
+                '.rezka-fav-row{display:flex;align-items:center;gap:1em;min-height:4em}' +
+                '.rezka-fav-cover{width:3.2em;height:4.7em;object-fit:cover;border-radius:.25em}' +
+                '.rezka-fav-msg{padding:1em;opacity:.8}';
+            document.head.appendChild(style);
+        }
+        if (Lampa.Menu && Lampa.Menu.addButton) {
+            Lampa.Menu.addButton(
+                '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/></svg>',
+                'Избранное HDRezka', function () { rezkaFavoritesOpen('', 1); }
+            );
+        }
+    }
+
     /* ====================================================
      *  Settings panel: domain / login / password / login
      * ==================================================== */
@@ -741,7 +1005,7 @@
         Lampa.SettingsApi.addParam({
             component: 'rezka',
             param: { name: STORAGE.password, type: 'input', values: '', default: '' },
-            field: { name: 'Пароль', description: 'Хранится локально на устройстве' }
+            field: { name: 'Пароль', description: 'Очищается после попытки входа' }
         });
 
         Lampa.SettingsApi.addParam({
@@ -770,9 +1034,16 @@
             field: { name: 'Выйти из аккаунта', description: 'Удалить сохранённую сессию' },
             onChange: function () {
                 logout();
-                Lampa.Noty.show('Сессия HDREZKA очищена');
+                Lampa.Noty.show('Локальные данные входа очищены');
                 $('[data-name="rezka_login_button"] .settings-param__descr').text(statusLabel());
             }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'rezka',
+            param: { name: 'rezka_open_favorites', type: 'trigger' },
+            field: { name: 'Открыть избранное HDRezka', description: 'Мои коллекции' },
+            onChange: function () { rezkaFavoritesOpen('', 1); }
         });
 
         Lampa.SettingsApi.addParam({
@@ -817,6 +1088,7 @@
             ensureDefaults();
             registerManifest();
             registerComponent();
+            rezkaFavoritesRegister();
             addSettings();
             addOnlineSource();
             addCardButton();
