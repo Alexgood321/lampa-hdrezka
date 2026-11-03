@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.3.0',
+        version: '1.3.1',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -929,7 +929,7 @@
         var scroll = new Lampa.Scroll({ mask: true, over: true });
         var explorer = new Lampa.Explorer(object);
         var html = $('<div class="rezka-fav-page"></div>');
-        var xhr = null, destroyed = false, self = this;
+        var xhr = null, destroyed = false, initialized = false, self = this;
         this.create = function () {
             scroll.minus();
             explorer.appendFiles(scroll.render());
@@ -938,6 +938,17 @@
         this.render = function () { return explorer.render(); };
         this.start = function () {
             if (Lampa.Activity.active().activity !== this.activity) return;
+            // Activity does not call initialize() for custom components.
+            // Without this the page opens but never requests favorites.
+            if (!initialized) {
+                initialized = true;
+                try {
+                    this.initialize();
+                } catch (error) {
+                    console.log('REZKA', 'favorites initialize error', error);
+                    finish('Не удалось открыть избранное: ' + (error.message || error));
+                }
+            }
             Lampa.Controller.add('content', {
                 toggle: function () {
                     Lampa.Controller.collectionSet(scroll.render(), explorer.render());
@@ -974,7 +985,10 @@
         }
         function finish(message) {
             if (destroyed) return;
-            if (message) $('<div class="rezka-fav-msg"></div>').text(message).appendTo(html);
+            if (message) {
+                $('<div class="rezka-fav-msg"></div>').text(message).appendTo(html);
+                if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('HDRezka: ' + message);
+            }
             scroll.append(html);
             self.activity.loader(false);
             self.activity.toggle();
@@ -989,7 +1003,12 @@
             xhr = rezkaFetchFavorites(path, function (error, response) {
                 if (destroyed) return;
                 if (error) { finish(error); return; }
-                var data = rezkaParseFavorites(response, page);
+                var data;
+                try { data = rezkaParseFavorites(response, page); }
+                catch (parseError) {
+                    finish('Ошибка обработки списка: ' + (parseError.message || parseError));
+                    return;
+                }
                 if (data.error) {
                     Lampa.Storage.set(STORAGE.status, 'error:' + data.error);
                     finish(data.error); return;
