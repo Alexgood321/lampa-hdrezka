@@ -40,3 +40,27 @@ for(const needle of clues){
  if(index>=0)assetFragments.push({needle,content:assetBody.slice(Math.max(0,index-500),index+650)});
 }
 console.log("LOGIN_SCRIPT_HINTS:"+JSON.stringify({inlineCount:inlineScripts.length,fragments:fragments.slice(0,15),assetStatus:asset.status,assetSize:assetBody.length,assetFragments},null,2));
+
+for(const code of inlineScripts){
+ const idx=code.indexOf("function ajaxPost");
+ if(idx>=0)console.log("AJAX_CLIENT_SIGNATURE:"+code.slice(idx,idx+1800));
+ const ok=code.indexOf("if (result.success)");
+ if(ok>=0)console.log("LOGIN_SUCCESS_BRANCH:"+code.slice(ok,ok+1300));
+}
+const invalidPayload="login_name=netlify-diagnostic-nonexistent%40example.invalid&login_password=invalidtestpassword&login_not_save=0";
+const probeResponse=await fetch(new URL("/ajax/login/",target),{
+ method:"POST",headers:{
+ "User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
+ "Accept":"application/json,text/plain,*/*",
+ "Content-Type":"application/x-www-form-urlencoded; charset=utf-8",
+ "X-Requested-With":"XMLHttpRequest",
+ "Referer":target,"Origin":new URL(target).origin
+ },body:invalidPayload,signal:AbortSignal.timeout(14000),redirect:"manual"
+});
+const badBody=(await probeResponse.text()).slice(0,1400);
+const badCookies=(probeResponse.headers.getSetCookie?.()||[]).map(x=>x.split("=")[0]);
+console.log("INVALID_LOGIN_DIAGNOSTIC:"+JSON.stringify({
+ status:probeResponse.status,ct:probeResponse.headers.get("content-type"),
+ location:probeResponse.headers.get("location"),cookieNames:badCookies,
+ body:badBody.replace(/netlify-diagnostic-nonexistent/g,"[TEST]"),
+}));
