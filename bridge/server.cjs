@@ -142,7 +142,9 @@ async function gatewayLoginIfPresent(login, password) {
 async function favoritesStatus() {
     const response = await upstream(new URL('/favorites/', base), 'GET');
     const html = await response.text();
-    return { http: response.status, authenticated: response.ok && hasFavorites(html),
+    const resolvedPath = new URL(response.url).pathname;
+    return { http: response.status, authenticated: response.ok &&
+        /^\/favorites\//.test(resolvedPath) && hasFavorites(html),
         gateway: /<title[^>]*>\s*(?:Вход|Sign in|Login)/i.test(html) ||
             /Создать аккаунт или восстановить пароль/i.test(html),
         cloudflare: /cf-challenge|challenge-form|Just a moment/i.test(html) };
