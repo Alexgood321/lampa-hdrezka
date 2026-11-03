@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.3.1',
+        version: '1.3.2',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -534,6 +534,8 @@
             info: null,
             choice: { voice: 0, season: 0 }
         };
+        var onlineInitialized = false;
+        var onlineDestroyed = false;
 
         this.create = function () {
             scroll.minus();
@@ -554,7 +556,21 @@
 
         this.start = function () {
             if (Lampa.Activity.active().activity !== this.activity) return;
-            Lampa.Background.immediately(Lampa.Utils.cardImgBackgroundBlur(object.movie));
+            if (!onlineInitialized) {
+                onlineInitialized = true;
+                try {
+                    this.initialize();
+                } catch (initError) {
+                    console.log('REZKA', 'online initialize error', initError);
+                    this.activity.loader(false);
+                    showError('HDRezka: ' + (initError.message || initError));
+                    this.activity.toggle();
+                }
+            }
+            if (object.movie && Lampa.Background && Lampa.Background.immediately &&
+                Lampa.Utils && Lampa.Utils.cardImgBackgroundBlur) {
+                Lampa.Background.immediately(Lampa.Utils.cardImgBackgroundBlur(object.movie));
+            }
             Lampa.Controller.add('content', {
                 toggle: function () {
                     Lampa.Controller.collectionSet(scroll.render(), files.render());
@@ -576,6 +592,7 @@
         this.stop = function () {};
         this.back = function () { Lampa.Activity.backward(); };
         this.destroy = function () {
+            onlineDestroyed = true;
             network.clear();
             scroll.destroy();
             files.destroy();
@@ -585,9 +602,16 @@
 
         // search & render flow ---------------------------------
         function showError(msg) {
-            var empty = new Lampa.Empty({ text: msg });
-            html.append(empty.render());
+            if (onlineDestroyed) return;
+            html.empty();
+            if (Lampa.Empty) {
+                try {
+                    var empty = new Lampa.Empty({ text: msg });
+                    html.append(empty.render());
+                } catch (e) { $('<div class="rezka-fav-msg"></div>').text(msg).appendTo(html); }
+            } else $('<div class="rezka-fav-msg"></div>').text(msg).appendTo(html);
             scroll.append(html);
+            if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('HDRezka: ' + msg);
         }
 
         function buildList() {
@@ -672,12 +696,14 @@
             var year = String(movie.release_date || movie.first_air_date || movie.year || '').slice(0, 4);
             function load(url) {
                 fetchFilmPage(url, function (info) {
+                    if (onlineDestroyed) return;
                     state.info = info;
                     self.activity.loader(false);
                     buildFilter();
                     buildList();
                     self.activity.toggle();
                 }, function (msg) {
+                    if (onlineDestroyed) return;
                     self.activity.loader(false);
                     showError(msg);
                     self.activity.toggle();
@@ -689,6 +715,7 @@
                 if (direct) { load(direct); return; }
             }
             searchRezka(title, year, function (items) {
+                if (onlineDestroyed) return;
                 if (!items.length) {
                     self.activity.loader(false);
                     showError('Ничего не найдено на HDREZKA');
@@ -895,25 +922,44 @@
     }
 
     function rezkaOpenLampaCard(item) {
-        var name = item.title;
-        if (Lampa.Api && typeof Lampa.Api.search === 'function') {
-            Lampa.Api.search({ query: encodeURIComponent(name) }, function (answer) {
-                var results = answer && (answer.results || (answer.movie && answer.movie.results)) || [];
-                function norm(x) { return String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]/g, ''); }
-                var found = results.filter(function (x) {
-                    var year = (x.release_date || x.first_air_date || '').slice(0, 4);
-                    return (norm(x.title) === norm(name) || norm(x.name) === norm(name) ||
-                        norm(x.original_title) === norm(name)) &&
-                        (!item.year || !year || Math.abs(Number(item.year) - Number(year)) <= 1);
-                })[0];
-                if (found) {
-                    Lampa.Activity.push({
-                        url: '', component: 'full', id: found.id,
-                        method: found.name ? 'tv' : 'movie', card: found, page: 1
-                    });
-                } else rezkaOpenLampaSearch(name);
-            }, function () { rezkaOpenLampaSearch(name); });
-        } else rezkaOpenLampaSearch(name);
+        var name = String(item.title || '').trim();
+        if (!name) { Lampa.Noty.show('HDRezka: отсутствует название'); return; }
+        function fallback() { rezkaOpenLampaSearch(name); }
+        if (!Lampa.Api || typeof Lampa.Api.search !== 'function') { fallback(); return; }
+
+        function norm(value) {
+            return String(value || '').toLowerCase().replace(/ё/g, 'е')
+                .replace(/[^a-zа-я0-9]/g, '');
+        }
+        var target = norm(name);
+        var targetYear = parseInt(item.year, 10) || 0;
+
+        // Lampa.Api.search returns {movie:{results:[]}, tv:{results:[]}},
+        // not {results:[]}. Preserve media type when opening the full card.
+        Lampa.Api.search({ query: encodeURIComponent(name) }, function (answer) {
+            var list = [];
+            ['movie', 'tv'].forEach(function (kind) {
+                var group = answer && answer[kind];
+                var rows = group && group.results || [];
+                rows.forEach(function (candidate) {
+                    if (candidate && candidate.id) list.push({ data: candidate, kind: kind });
+                });
+            });
+            var found = list.filter(function (entry) {
+                var x = entry.data;
+                var titles = [x.title, x.name, x.original_title, x.original_name];
+                if (!titles.some(function (title) { return norm(title) === target; })) return false;
+                var year = parseInt((x.release_date || x.first_air_date || '').slice(0, 4), 10);
+                return !targetYear || !year || Math.abs(targetYear - year) <= 1;
+            })[0];
+            if (!found) { fallback(); return; }
+            Lampa.Activity.push({
+                url: found.kind + '/' + found.data.id,
+                title: found.data.title || found.data.name || name,
+                component: 'full', id: found.data.id,
+                method: found.kind, source: 'tmdb', card: found.data, page: 1
+            });
+        });
     }
 
     function rezkaOpenLampaSearch(query) {
