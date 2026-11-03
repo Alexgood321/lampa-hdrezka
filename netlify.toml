@@ -1,4 +1,5 @@
 [build]
+  command = "cp rezka.js public/rezka.js"
   publish = "public"
 
 [functions]
