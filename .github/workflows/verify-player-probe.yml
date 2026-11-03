@@ -1,0 +1,17 @@
+name: Read sanitized authenticated page markers once
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Read temporary page format hints (no PII)
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 25 \
+            "https://alexgood321-rezka-lampa.netlify.app/__rezka_parser_probe" \
+            -o /tmp/parser.json
+          cat /tmp/parser.json
+          echo
