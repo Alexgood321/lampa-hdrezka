@@ -1,0 +1,21 @@
+name: Validate HDRezka plugin and bridge
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript syntax
+        run: |
+          node --check rezka.js
+          node --check bridge/server.cjs
+      - name: Bridge unit tests
+        run: node --test bridge/test.cjs
