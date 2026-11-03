@@ -33,6 +33,15 @@ function harness(config = {}) {
     empty() { this.children = []; return this; }
     remove() { return this; }
     find() { return { length: 0, text() {} }; }
+    querySelectorAll(selector) {
+      if (selector === '.b-simple_season__item' && (this.innerHTML || '').includes('b-simple_season__item')) {
+        return [{textContent:'Сезон 1',getAttribute:k=>k === 'data-tab_id' ? '1' : null}];
+      }
+      if (selector === '.b-simple_episode__item' && (this.innerHTML || '').includes('b-simple_episode__item')) {
+        return [{textContent:'1 серия',getAttribute:k=>k === 'data-season_id' ? '1' : k === 'data-episode_id' ? '1' : null}];
+      }
+      return [];
+    }
   }
   class XHR {
     constructor() {
@@ -126,7 +135,7 @@ test('watch activity reports a parse failure, not a blank screen', ()=>{
     movie:{title:'Тест',rezka_url:'https://flymaterez.net/series/fantasy/the-peripheral/'}
   });
   assert.equal(h.calls.length,1);
-  assert.ok(h.errors.some(x=>/Не удалось распарсить страницу/.test(x)));
+  assert.ok(h.errors.some(x=>/Не удалось определить ID плеера/.test(x)));
   assert.ok(h.scrolls[0].elements.length>0);
 });
 
@@ -152,4 +161,20 @@ test('never opens unrelated TMDB card as a match',()=>{
   h.w.__rezka_test_hooks.rezkaOpenLampaCard({title:'Периферийные устройства',year:'2022'});
   assert.ok(h.pushes.length>=1);
   assert.notEqual(h.pushes[0].component,'full');
+});
+
+test('series player accepts modern initializer with numeric flag 2 and class variants',()=>{
+  const response='<script>sof.tv.initCDNSeriesEvents(51560, 457, 2, 0, false, "mirror", true, false, {"url":"x"});</script>' +
+    '<ul class="b-simple_seasons__list extra"><li class="b-simple_season__item" data-tab_id="1">Сезон 1</li></ul>' +
+    '<ul class="extra b-simple_episodes__list"><li class="b-simple_episode__item" data-season_id="1" data-episode_id="1">1 серия</li></ul>';
+  const h=harness({response});
+  h.Lampa.Activity.push({
+    component:'rezka_online',
+    movie:{title:'Периферийные устройства',rezka_url:'https://flymaterez.net/series/fiction/51560-periferiynye-ustroystva-2022.html'}
+  });
+  assert.equal(h.calls.length,1);
+  assert.equal(h.errors.length,0,'modern series page must not trigger parse error');
+  const page=h.scrolls[0].elements[0];
+  assert.equal(page.children.length,1,'one episode is rendered');
+  assert.match(page.children[0].markup,/1 серия/);
 });
