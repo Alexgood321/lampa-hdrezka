@@ -1,0 +1,18 @@
+name: Verify published HDRezka 1.3.2
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Validate public JS version and syntax
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 20 \
+            -H "Origin: https://lampa.mx" \
+            https://alexgood321-rezka-lampa.netlify.app/rezka.js -o /tmp/rezka.js
+          grep -q "version: '1.3.2'" /tmp/rezka.js
+          node --check /tmp/rezka.js
+          echo "HDRezka 1.3.2 publicly available"
