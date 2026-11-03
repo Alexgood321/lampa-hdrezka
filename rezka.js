@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.1.0',
+        version: '1.2.0',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -57,6 +57,9 @@
             Lampa.Storage.set(STORAGE.status, 'guest');
             Lampa.Storage.set('rezka_migrated_110', true);
         }
+        // Existing installations may still contain passwords from older versions.
+        // Never retain a password in persistent Lampa settings.
+        Lampa.Storage.set(STORAGE.password, '');
         Object.keys(defaults).forEach(function (k) {
             try {
                 var cur = Lampa.Storage.get(k, '__none__');
@@ -183,73 +186,66 @@
      *  Auth: login to HDREZKA
      * ==================================================== */
     function authenticate(login, password, cb) {
-        if (!/^https:\/\//i.test(getDomain()) || (Lampa.Storage.get(STORAGE.proxy) &&
-            !/^https:\/\//i.test(Lampa.Storage.get(STORAGE.proxy)))) {
-            Lampa.Storage.set(STORAGE.password, '');
-            cb(false, 'Для передачи пароля необходим HTTPS у HDRezka и прокси');
+        var proxy = String(Lampa.Storage.get(STORAGE.proxy) || '').trim();
+        if (!/^https:\/\//i.test(getDomain()) || (proxy && !/^https:\/\//i.test(proxy))) {
+            cb(false, 'Для авторизации нужен HTTPS у зеркала и прокси');
             return;
         }
-        var url = proxify(getDomain() + '/ajax/login/?t=' + Date.now());
+        var endpoint = proxify(getDomain() + '/ajax/login/?t=' + Date.now());
         var post = 'login_name=' + encodeURIComponent(login) +
-                   '&login_password=' + encodeURIComponent(password) +
-                   '&login_not_save=0';
-
-        var net = new Lampa.Reguest();
-        net.timeout(15000);
-
-        // We need raw response WITH Set-Cookie. Lampa.Reguest does not always
-        // expose headers, so we fall back to XHR directly.
-        try {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.withCredentials = true;
-            xhr.timeout = 15000;
-            xhr.onload = function () {
-                var ok = false, msg = '';
-                try {
-                    var json = JSON.parse(xhr.responseText);
-                    ok = !!json.success;
-                    msg = json.message || '';
-                } catch (e) { msg = 'Некорректный ответ сервера'; }
-
-                if (ok) {
-                    // document.cookie здесь принадлежит Lampa, а НЕ домену HDRezka.
-                    // success login не означает, что WebView сохранил сессию.
-                    rezkaFetchFavorites('/favorites/', function (error, html) {
-                        var parsed = error ? null : rezkaParseFavorites(html, 1);
-                        Lampa.Storage.set(STORAGE.password, '');
-                        if (error || parsed.error) {
-                            var why = error || parsed.error;
-                            Lampa.Storage.set(STORAGE.status, 'error:' + why);
-                            cb(false, 'Вход принят, но сессия недоступна: ' + why);
-                        } else {
-                            Lampa.Storage.set(STORAGE.cookie, '');
-                            Lampa.Storage.set(STORAGE.status, 'logged');
-                            cb(true, 'Вход и доступ к избранному подтверждены');
-                        }
-                    });
-                } else {
-                    Lampa.Storage.set(STORAGE.password, '');
-                    Lampa.Storage.set(STORAGE.status, 'error:' + (msg || 'login failed'));
-                    cb(false, msg || 'Не удалось войти');
-                }
-            };
-            xhr.onerror = function () {
-                Lampa.Storage.set(STORAGE.password, '');
-                Lampa.Storage.set(STORAGE.status, 'error:network');
-                cb(false, 'Сетевая ошибка');
-            };
-            xhr.ontimeout = function () {
-                Lampa.Storage.set(STORAGE.password, '');
-                Lampa.Storage.set(STORAGE.status, 'error:timeout');
-                cb(false, 'Превышено время ожидания');
-            };
-            xhr.send(post);
-        } catch (e) {
+            '&login_password=' + encodeURIComponent(password) + '&login_not_save=0';
+        // Передаём пароль только в POST, никогда не кладём в Lampa.Storage.
+        var network = new Lampa.Reguest();
+        var completed = false;
+        function finish(ok, message) {
+            if (completed) return;
+            completed = true;
             Lampa.Storage.set(STORAGE.password, '');
-            cb(false, 'Ошибка: ' + e.message);
+            Lampa.Storage.set(STORAGE.status, ok ? 'logged' : 'error:' + message);
+            cb(ok, message);
+        }
+        function verifySession() {
+            rezkaFetchFavorites('/favorites/', function (error, html) {
+                if (error) {
+                    finish(false, 'Вход принят, но избранное недоступно: ' + error);
+                    return;
+                }
+                var parsed = rezkaParseFavorites(html, 1);
+                if (parsed.error) {
+                    finish(false, 'Вход принят, но сессия не подтверждена: ' + parsed.error);
+                    return;
+                }
+                finish(true, 'Сессия подтверждена, избранное доступно');
+            });
+        }
+        try {
+            network.timeout(15000);
+            network.silent(endpoint, function (response) {
+                var json = response;
+                if (typeof json === 'string') {
+                    try { json = JSON.parse(json); }
+                    catch (error) {
+                        finish(false, 'Ответ не JSON: зеркало или Cloudflare блокирует вход');
+                        return;
+                    }
+                }
+                if (!json || !(json.success || json.message ===
+                    'Уже авторизован на сайте. Необходимо обновить страницу!')) {
+                    finish(false, json && json.message || 'HDRezka отклонила запрос входа');
+                    return;
+                }
+                verifySession();
+            }, function (error) {
+                var detail = error && (error.status || error.message) || '';
+                finish(false, 'Сетевая ошибка/CORS' + (detail ? ' (' + detail + ')' : '') +
+                    '. На iOS требуется доступное зеркало или доверенный HTTPS-сервер для запросов');
+            }, post, {
+                dataType: 'text',
+                withCredentials: true,
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+        } catch (error) {
+            finish(false, error.message || 'Не удалось выполнить запрос');
         }
     }
 
@@ -750,19 +746,21 @@
     function rezkaFetchFavorites(path, done) {
         var url = rezkaSiteURL(path);
         if (!url) { done('Некорректный адрес коллекции'); return null; }
-        var xhr = new XMLHttpRequest();
+        var net = new Lampa.Reguest();
+        var canceled = false;
         try {
-            xhr.open('GET', proxify(url), true);
-            xhr.withCredentials = true;
-            xhr.timeout = 15000;
-            xhr.onload = function () {
-                done(xhr.status >= 200 && xhr.status < 300 ? null : 'HTTP ' + xhr.status, xhr.responseText || '');
-            };
-            xhr.onerror = function () { done('CORS или ошибка сети, проверьте зеркало и прокси'); };
-            xhr.ontimeout = function () { done('Таймаут загрузки избранного'); };
-            xhr.send();
+            net.timeout(15000);
+            net.silent(proxify(url), function (result) {
+                if (!canceled) done(null, typeof result === 'string' ? result : String(result || ''));
+            }, function (err) {
+                if (!canceled) {
+                    var status = err && err.status || 0;
+                    done(status ? 'HTTP/сеть ' + status :
+                        'CORS или недоступное зеркало. На iOS может понадобиться доверенный HTTPS-прокси');
+                }
+            }, false, { dataType: 'text', withCredentials: true });
         } catch (e) { done(e.message || 'Ошибка запроса'); }
-        return xhr;
+        return { abort: function () { canceled = true; if (net.clear) net.clear(); } };
     }
 
     function rezkaParseFavorites(html, page) {
@@ -1017,46 +1015,70 @@
 
         Lampa.SettingsApi.addParam({
             component: 'rezka',
-            param: { name: STORAGE.password, type: 'input', values: '', default: '' },
-            field: { name: 'Пароль', description: 'Очищается после попытки входа' }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'rezka',
-            param: { name: 'rezka_login_button', type: 'trigger' },
+            param: { name: 'rezka_login_button', type: 'button' },
             field: { name: 'Войти в аккаунт', description: statusLabel() },
             onChange: function () {
-                var login = Lampa.Storage.get(STORAGE.login);
-                var pwd   = Lampa.Storage.get(STORAGE.password);
-                if (!login || !pwd) {
-                    Lampa.Noty.show('Введите логин и пароль');
+                var login = String(Lampa.Storage.get(STORAGE.login) || '').trim();
+                if (!login) {
+                    Lampa.Noty.show('Сначала укажите логин HDRezka');
                     return;
                 }
-                Lampa.Noty.show('Авторизация на HDREZKA…');
-                authenticate(login, pwd, function (ok, msg) {
-                    Lampa.Noty.show((ok ? '✓ ' : '✗ ') + msg);
-                    // refresh description
-                    $('[data-name="rezka_login_button"] .settings-param__descr').text(statusLabel());
+                if (!Lampa.Input || !Lampa.Input.edit) {
+                    Lampa.Noty.show('В этой версии Lampa нет безопасного диалога ввода');
+                    return;
+                }
+                Lampa.Input.edit({
+                    value: '', title: 'Пароль HDRezka',
+                    free: true, nosave: true
+                }, function (password) {
+                    if (!password) return;
+                    Lampa.Noty.show('Проверяем соединение и авторизацию…');
+                    authenticate(login, password, function (ok, msg) {
+                        Lampa.Noty.show((ok ? '✓ ' : '✗ ') + msg);
+                        $('[data-name="rezka_login_button"] .settings-param__descr')
+                            .text(statusLabel());
+                    });
                 });
             }
         });
 
         Lampa.SettingsApi.addParam({
             component: 'rezka',
-            param: { name: 'rezka_logout_button', type: 'trigger' },
-            field: { name: 'Выйти из аккаунта', description: 'Удалить сохранённую сессию' },
+            param: { name: 'rezka_logout_button', type: 'button' },
+            field: { name: 'Выйти из аккаунта', description: 'Очистить локальный статус; серверную сессию это не закрывает' },
             onChange: function () {
                 logout();
-                Lampa.Noty.show('Локальные данные входа очищены');
+                Lampa.Noty.show('Локальный статус очищен. Cookie браузера могут остаться.');
                 $('[data-name="rezka_login_button"] .settings-param__descr').text(statusLabel());
             }
         });
 
         Lampa.SettingsApi.addParam({
             component: 'rezka',
-            param: { name: 'rezka_open_favorites', type: 'trigger' },
+            param: { name: 'rezka_open_favorites', type: 'button' },
             field: { name: 'Открыть избранное HDRezka', description: 'Мои коллекции' },
             onChange: function () { rezkaFavoritesOpen('', 1); }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'rezka',
+            param: { name: 'rezka_connection_check', type: 'button' },
+            field: {
+                name: 'Проверить связь с HDRezka',
+                description: 'Проверка сети и CORS без отправки пароля'
+            },
+            onChange: function () {
+                Lampa.Noty.show('Проверяем доступ к сайту HDRezka…');
+                rezkaFetchFavorites('/favorites/', function (error, html) {
+                    if (error) Lampa.Noty.show('HDRezka: ' + error);
+                    else {
+                        var parsed = rezkaParseFavorites(html, 1);
+                        Lampa.Noty.show(parsed.error ?
+                            'Сеть доступна; ' + parsed.error :
+                            'Сеть и избранное доступны');
+                    }
+                });
+            }
         });
 
         Lampa.SettingsApi.addParam({
