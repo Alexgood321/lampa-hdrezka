@@ -98,6 +98,47 @@ function hasFavorites(text) {
     return /b-favorites_content|b-content__inline_item|b-header__user|href=["'][^"']*\/logout/i.test(text)
         && !/cf-challenge|challenge-form|Just a moment/i.test(text);
 }
+function inputAttr(tag, name) {
+    const match = new RegExp('(?:^|\\s)' + name + '\\s*=\\s*(?:"([^"]*)"|\\x27([^\\x27]*)\\x27|([^\\s>]+))', 'i').exec(tag);
+    return match ? (match[1] || match[2] || match[3] || '') : '';
+}
+function gatewayForm(html) {
+    const forms = [...html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)];
+    for (const form of forms) {
+        const entries = [...form[2].matchAll(/<input\b[^>]*>/gi)].map(m => ({
+            name: inputAttr(m[0], 'name'), type: inputAttr(m[0], 'type').toLowerCase(),
+            value: inputAttr(m[0], 'value')
+        }));
+        const pass = entries.find(x => x.name && (x.type === 'password' || /pass(word)?/i.test(x.name)));
+        const user = entries.find(x => x.name && x !== pass &&
+            (x.type === 'email' || /^(?:email|mail|login|username|login_name)$/i.test(x.name)));
+        if (!pass || !user) continue;
+        const action = inputAttr(form[1], 'action') || '/';
+        const url = targetURL(new URL(action, base));
+        const data = new URLSearchParams();
+        entries.forEach(x => {
+            if (x.name && x.type !== 'password' && x.type !== 'email' &&
+                x.type !== 'submit' && x.type !== 'button' && x.type !== 'file') {
+                data.set(x.name, x.value);
+            }
+        });
+        return { url, data, usernameField: user.name, passwordField: pass.name };
+    }
+    return null;
+}
+async function gatewayLoginIfPresent(login, password) {
+    const res = await upstream(base, 'GET');
+    const html = await res.text();
+    if (!/<title[^>]*>\s*(?:Вход|Sign in|Login)/i.test(html) &&
+        !/Создать аккаунт или восстановить пароль/i.test(html)) return false;
+    const form = gatewayForm(html);
+    if (!form) throw Error('Gateway login page uses an unsupported JavaScript form');
+    form.data.set(form.usernameField, login);
+    form.data.set(form.passwordField, password);
+    await upstream(form.url, 'POST', form.data.toString());
+    return true;
+}
+
 async function favoritesStatus() {
     const response = await upstream(new URL('/favorites/', base), 'GET');
     const html = await response.text();
@@ -148,6 +189,15 @@ const server = http.createServer(async (req, res) => {
                 login_name: login, login_password: password, login_not_save: '0', login: 'submit'
             });
             cookies.clear();
+            // Closed mirrors sometimes have a separate first-party login form.
+            // Submit it only to the configured mirror, never to another host.
+            const gate = await gatewayLoginIfPresent(login, password);
+            const intermediate = gate ? await favoritesStatus() : { authenticated: false };
+            if (intermediate.authenticated) {
+                lastAuth = true;
+                json(res, 200, { ok: true, authenticated: true, gateway: true });
+                return;
+            }
             const response = await upstream(new URL('/ajax/login/', base), 'POST', payload.toString());
             const body = await response.text();
             let data = {};
@@ -193,4 +243,7 @@ const server = http.createServer(async (req, res) => {
         json(res, 502, { error: 'Bridge upstream error', detail: error.message.slice(0, 160) });
     }
 });
-server.listen(port, host, () => console.log('HDRezka bridge listening on ' + host + ':' + port));
+if (require.main === module) {
+    server.listen(port, host, () => console.log('HDRezka bridge listening on ' + host + ':' + port));
+}
+module.exports = { server, allowedPath, targetURL, gatewayForm, hasFavorites };
