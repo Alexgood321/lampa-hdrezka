@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.3.2',
+        version: '1.3.3',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -379,7 +379,13 @@
             };
 
             // film id
-            var idm = str.match(/initCDN(?:Series|Movies)Events\(\s*(\d+)\s*,\s*(\d+)\s*,\s*([01])\s*,\s*([01])\s*(?:,\s*([01]))?/);
+            // The mirror may return camera/advertising flags larger than 1.
+            // Previous [01] restriction rejected valid player markup as unparseable.
+            var idm = str.match(/initCDN(?:Series|Movies)Events\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*(\d+))?/);
+            if (!idm) {
+                // Compatible with other mirrors that expose only ID and translator ID.
+                idm = str.match(/initCDN(?:Series|Movies)Events\s*\(\s*(\d+)\s*,\s*(\d+)/);
+            }
             if (idm) {
                 info.film_id = idm[1];
                 var defVoiceId = idm[2];
@@ -447,9 +453,17 @@
                 }
                 cb(info);
             } else {
-                err && err('Не удалось распарсить страницу');
+                if (/<title[^>]*>\s*(?:Вход|Login)/i.test(str) || /id=["']loginForm["']/.test(str)) {
+                    err && err('HDRezka вернула страницу входа вместо плеера. Проверь сессию.');
+                } else if (/just a moment|cf-challenge|checking your browser/i.test(str)) {
+                    err && err('HDRezka заблокировала загрузку плеера проверкой браузера.');
+                } else {
+                    err && err('Не удалось определить ID плеера на странице HDRezka.');
+                }
             }
-        }, function () { err && err('Сетевая ошибка'); });
+        }, function (error) {
+            err && err(typeof error === 'string' ? error : 'Сетевая ошибка при загрузке страницы');
+        });
     }
 
     /* ====================================================
