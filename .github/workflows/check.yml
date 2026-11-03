@@ -1,4 +1,4 @@
-name: Validate HDRezka plugin and bridge
+name: Validate HDRezka plugin and bridges
 on:
   push:
     branches: [main]
@@ -13,9 +13,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install serverless dependencies
+        run: npm install --no-audit --ignore-scripts
       - name: JavaScript syntax
-        run: |
-          node --check rezka.js
-          node --check bridge/server.cjs
-      - name: Bridge unit tests
-        run: node --test bridge/test.cjs
+        run: npm run check
+      - name: Bridge tests
+        run: npm test
