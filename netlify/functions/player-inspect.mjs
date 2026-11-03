@@ -44,11 +44,18 @@ export default async function handler() {
       externalScriptCount:(html.match(/<script\b[^>]*src=/g)||[]).length,
       dataMovieId:/data-(?:movie|film|player)_?id/.test(html)
     };
+    const initializers=[...html.matchAll(/initCDN(?:Series|Movies)Events\s*\(([^)]{0,350})\)/g)].slice(0,5).map(m=>{
+      const rawArgs=m[1].split(",").map(x=>x.trim());
+      const kinds=rawArgs.map(x=>/^\d+$/.test(x)?"number":
+        /^(?:true|false|null|undefined)$/.test(x)?x:
+        /^['"]/.test(x)?"string":/^\d+\s*[+\-*/]/.test(x)?"expression":"other");
+      return {count:rawArgs.length,kinds,legacyRegexMatch:/^\s*\d+\s*,\s*\d+\s*,\s*[01]\s*,\s*[01]/.test(m[1])};
+    });
     // No cookie names/values, title, page body, URL, or media metadata in response.
     return new Response(JSON.stringify({
       httpStatus:response.status,
       redirectsToLogin:/\/login[/?#]|\/logout[/?#]/.test(response.headers.get("location")||""),
-      htmlSizeBucket:html.length<25000?"small":html.length<150000?"medium":"large",clues
+      htmlSizeBucket:html.length<25000?"small":html.length<150000?"medium":"large",clues,initializers
     }),{headers});
   }catch(err){
     return new Response(JSON.stringify({diagnosticError:err?.name||"Error"}),{status:502,headers});
