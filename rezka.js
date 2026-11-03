@@ -427,7 +427,7 @@
                 }
 
                 if (info.is_series) {
-                    var sm = str.match(/<ul[^>]+class="b-simple_seasons__list"[\s\S]*?<\/ul>/);
+                    var sm = str.match(/<ul\b[^>]*class=["'][^"']*\bb-simple_seasons__list\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/i);
                     if (sm) {
                         var ds = document.createElement('div'); ds.innerHTML = sm[0];
                         ds.querySelectorAll('.b-simple_season__item').forEach(function (li) {
@@ -437,7 +437,7 @@
                             });
                         });
                     }
-                    var em = str.match(/<ul[^>]+class="b-simple_episodes__list"[\s\S]*?<\/ul>/g);
+                    var em = str.match(/<ul\b[^>]*class=["'][^"']*\bb-simple_episodes__list\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi);
                     if (em) {
                         em.forEach(function (block) {
                             var de = document.createElement('div'); de.innerHTML = block;
