@@ -50,6 +50,13 @@
         defaults[STORAGE.cookie]   = '';
         defaults[STORAGE.status]   = 'guest';
         defaults[STORAGE.proxy]    = '';
+        // Миграция с 1.0.x: ранее сохранялись пароль и cookie чужого origin.
+        if (!Lampa.Storage.get('rezka_migrated_110', false)) {
+            Lampa.Storage.set(STORAGE.cookie, '');
+            Lampa.Storage.set(STORAGE.password, '');
+            Lampa.Storage.set(STORAGE.status, 'guest');
+            Lampa.Storage.set('rezka_migrated_110', true);
+        }
         Object.keys(defaults).forEach(function (k) {
             try {
                 var cur = Lampa.Storage.get(k, '__none__');
@@ -176,6 +183,12 @@
      *  Auth: login to HDREZKA
      * ==================================================== */
     function authenticate(login, password, cb) {
+        if (!/^https:\/\//i.test(getDomain()) || (Lampa.Storage.get(STORAGE.proxy) &&
+            !/^https:\/\//i.test(Lampa.Storage.get(STORAGE.proxy)))) {
+            Lampa.Storage.set(STORAGE.password, '');
+            cb(false, 'Для передачи пароля необходим HTTPS у HDRezka и прокси');
+            return;
+        }
         var url = proxify(getDomain() + '/ajax/login/?t=' + Date.now());
         var post = 'login_name=' + encodeURIComponent(login) +
                    '&login_password=' + encodeURIComponent(password) +
@@ -815,7 +828,7 @@
         var name = item.title;
         if (Lampa.Api && typeof Lampa.Api.search === 'function') {
             Lampa.Api.search({ query: encodeURIComponent(name) }, function (answer) {
-                var results = answer && answer.results || [];
+                var results = answer && (answer.results || (answer.movie && answer.movie.results)) || [];
                 function norm(x) { return String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]/g, ''); }
                 var found = results.filter(function (x) {
                     var year = (x.release_date || x.first_air_date || '').slice(0, 4);
@@ -963,10 +976,10 @@
             document.head.appendChild(style);
         }
         if (Lampa.Menu && Lampa.Menu.addButton) {
-            Lampa.Menu.addButton(
+            try { Lampa.Menu.addButton(
                 '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/></svg>',
                 'Избранное HDRezka', function () { rezkaFavoritesOpen('', 1); }
-            );
+            ); } catch (error) { console.log('REZKA', 'menu error', error.message); }
         }
     }
 
