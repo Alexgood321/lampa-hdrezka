@@ -41,4 +41,4 @@ test('distinguishes favorites page from login/challenge', () => {
     assert.equal(hasFavorites('<form><input name="password"></form>'), false);
     assert.equal(hasFavorites('Just a moment <div class="b-favorites_content"></div>'), false);
 });
-test.after(() => server.close());
+// The server is not started when imported by tests.
