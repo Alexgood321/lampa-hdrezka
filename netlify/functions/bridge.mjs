@@ -211,27 +211,54 @@ function gatewayForm(html, base) {
   return null;
 }
 
+function loginMessage(reply) {
+  if (!reply || typeof reply !== "object") return "";
+  if (reply.logged_email) return "Сервис сообщает, что уже выполнен вход под другим аккаунтом";
+  let value = reply.message;
+  if (value && typeof value === "object") {
+    value = value.email || value.password || value.login_name ||
+      value.login_password || Object.values(value).find(v => typeof v === "string");
+  }
+  if (typeof value !== "string") return "";
+  return value.replace(/<[^>]*>/g, " ").replace(/[\u0000-\u001f\u007f]+/g," ")
+    .replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function loginResponse(text, status) {
+  if (status < 200 || status >= 300) {
+    return { success: false, error: "HDRezka: HTTP " + status };
+  }
+  let data;
+  try { data = JSON.parse(text); }
+  catch { return { success: false, error: "HDRezka вернула не JSON вместо ответа авторизации" }; }
+  if (data && data.success === true) return { success: true };
+  return { success: false, error: loginMessage(data) || "HDRezka отклонила авторизацию" };
+}
+
 async function loginToMirror(login, password, jar, base) {
   const home = await remoteRequest(base, "GET", undefined, jar, base);
   const homeHTML = await home.response.text();
   const form = gatewayForm(homeHTML, base);
-  if (form) {
-    form.params.set(form.loginField, login);
-    form.params.set(form.passwordField, password);
-    const gate = await remoteRequest(form.action, "POST", form.params.toString(), jar, base);
-    await gate.response.body?.cancel();
-    let state = await checkFavorites(jar, base);
-    if (state.authenticated) return state;
+  // Mirrors with a login form already specify their own auth endpoint.
+  // A fallback second POST with the same password may trigger account limits.
+  const endpoint = form ? form.action : new URL("/ajax/login/", base);
+  const payload = form ? form.params : new URLSearchParams({ login_not_save: "0" });
+  payload.set(form ? form.loginField : "login_name", login);
+  payload.set(form ? form.passwordField : "login_password", password);
+  const ajax = await remoteRequest(endpoint, "POST", payload.toString(), jar, base);
+  const message = loginResponse(await ajax.response.text(), ajax.response.status);
+  if (!message.success) {
+    return { authenticated: false, error: message.error, upstreamHttp: ajax.response.status };
   }
-  const params = new URLSearchParams({
-    login_name: login, login_password: password,
-    login_not_save: "0", login: "submit",
-  });
-  const ajax = await remoteRequest(new URL("/ajax/login/", base), "POST",
-    params.toString(), jar, base);
-  await ajax.response.body?.cancel();
-  return checkFavorites(jar, base);
+  const status = await checkFavorites(jar, base);
+  if (!status.authenticated) {
+    status.error = status.cloudflare ? "HDRezka ограничила запросы Cloudflare" :
+      status.gateway ? "HDRezka приняла вход, но сессия не открыла избранное. Проверьте cookies и доступ к зеркалу." :
+      "HDRezka приняла вход, но /favorites/ недоступно (HTTP " + status.http + ")";
+  }
+  return status;
 }
+
 
 async function boundedText(request, max) {
   const length = Number(request.headers.get("content-length") || 0);
@@ -286,9 +313,9 @@ export default async function handler(req) {
       if (!status.authenticated) {
         return answer({
           ok: false,
-          error: status.cloudflare ? "Cloudflare rejected Netlify requests" :
-            status.gateway ? "Mirror login form requires additional handling" :
-              "Login failed or favorites page is unavailable (HTTP " + status.http + ")",
+          error: status.error || (status.cloudflare ? "HDRezka отклонила серверный запрос (Cloudflare)" :
+            status.gateway ? "После входа сайт всё ещё показывает форму авторизации" :
+              "Избранное недоступно (HTTP " + status.http + ")"),
         }, 409);
       }
       await saveSession(store, jar);
@@ -325,3 +352,6 @@ export default async function handler(req) {
     return answer({ error: "Bridge error", detail: safe.slice(0, 160) }, 502);
   }
 }
+
+// Internal test helpers. Not HTTP routes; credentials are never exported.
+export const __test = { loginMessage, loginResponse, loginToMirror, gatewayForm };
