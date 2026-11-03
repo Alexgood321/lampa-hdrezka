@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.3.3',
+        version: '1.3.4',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -637,15 +637,26 @@
             var season = info.season[state.choice.season];
 
             var items = [];
-            if (info.is_series && season) {
+            if (info.is_series) {
+                if (!season) {
+                    showError('Не удалось определить сезоны сериала на HDRezka');
+                    return;
+                }
                 items = info.episode.filter(function (e) { return String(e.season_id) === String(season.id); });
+                if (!items.length) {
+                    showError('Список серий не найден на странице HDRezka');
+                    return;
+                }
             } else {
                 items = [{ name: 'Смотреть фильм', episode_id: 0, season_id: 0, _movie: true }];
             }
 
             items.forEach(function (ep) {
-                var item = $('<div class="online"><div class="online__title">' + Lampa.Utils.escape(ep.name) +
-                    '</div><div class="online__quality">' + Lampa.Utils.escape(voice.name) + '</div></div>');
+                // Lampa.Utils.escape does not exist in standard Lampa.
+                // jQuery.text() safely escapes HTML, including untrusted episode names.
+                var item = $('<div class="online selector"></div>');
+                $('<div class="online__title"></div>').text(String(ep.name || '')).appendTo(item);
+                $('<div class="online__quality"></div>').text(String(voice && voice.name || '')).appendTo(item);
                 item.on('hover:enter', function () {
                     Lampa.Modal.open({
                         title: 'HDREZKA',
@@ -692,13 +703,24 @@
                 f.season = info.season.map(function (s) { return s.name; });
             }
             filter.set('filter', Object.keys(f).map(function (key) {
-                return { title: key === 'voice' ? 'Перевод' : 'Сезон', subtitle: f[key][state.choice[key]] || '—', stype: key };
+                return {
+                    title: key === 'voice' ? 'Перевод' : 'Сезон',
+                    subtitle: f[key][state.choice[key]] || '—',
+                    stype: key,
+                    noselect: true,
+                    items: f[key].map(function (label, index) {
+                        return { title: label, index: index, selected: index === state.choice[key] };
+                    })
+                };
             }));
             filter.onSelect = function (type, a, b) {
-                if (a.stype) {
-                    state.choice[a.stype] = b.index;
-                    buildFilter();
-                    buildList();
+                if (type !== 'filter' || !a || !a.stype || !b || typeof b.index !== 'number') return;
+                state.choice[a.stype] = b.index;
+                buildFilter();
+                try { buildList(); }
+                catch (renderError) {
+                    console.log('REZKA', 'HDRezka player render failed', renderError);
+                    showError('Ошибка отображения серий: ' + (renderError.message || renderError));
                 }
             };
         }
@@ -713,8 +735,13 @@
                     if (onlineDestroyed) return;
                     state.info = info;
                     self.activity.loader(false);
-                    buildFilter();
-                    buildList();
+                    try {
+                        buildFilter();
+                        buildList();
+                    } catch (renderError) {
+                        console.log('REZKA', 'player render error', renderError);
+                        showError('Ошибка отображения плеера: ' + (renderError.message || renderError));
+                    }
                     self.activity.toggle();
                 }, function (msg) {
                     if (onlineDestroyed) return;
