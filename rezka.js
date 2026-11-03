@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.2.0',
+        version: '1.3.0',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -36,7 +36,9 @@
         password: 'rezka_password',
         cookie:   'rezka_cookie',     // dle_user_id=...; dle_password=...
         status:   'rezka_status',     // 'logged' | 'guest' | 'error:<msg>'
-        proxy:    'rezka_proxy_url'   // optional CORS proxy
+        proxy:    'rezka_proxy_url',  // legacy CORS proxy
+        bridge:   'rezka_bridge_url', // own HTTPS bridge
+        token:    'rezka_bridge_token' // access token, never shown in settings
     };
 
     /* Безопасный вызов Lampa.Storage.add — в разных билдах Lampa
@@ -50,6 +52,8 @@
         defaults[STORAGE.cookie]   = '';
         defaults[STORAGE.status]   = 'guest';
         defaults[STORAGE.proxy]    = '';
+        defaults[STORAGE.bridge]   = '';
+        defaults[STORAGE.token]    = '';
         // Миграция с 1.0.x: ранее сохранялись пароль и cookie чужого origin.
         if (!Lampa.Storage.get('rezka_migrated_110', false)) {
             Lampa.Storage.set(STORAGE.cookie, '');
@@ -88,25 +92,68 @@
     }
 
     function buildHeaders(extra) {
-        var headers = {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'ru,en;q=0.9',
-            'Referer': getDomain() + '/',
-            'X-Requested-With': 'XMLHttpRequest'
-        };
+        // Forbidden and non-simple cross-origin headers cause WebKit preflight/failure.
+        var headers = { 'Accept': 'text/html, text/plain, application/json, */*' };
         // Браузер сам отправляет cookies HDRezka; вручную заголовок Cookie запрещён.
         if (extra) for (var k in extra) headers[k] = extra[k];
         return headers;
     }
 
-    /**
-     * Pass URL through optional CORS proxy if user configured one.
-     */
+    function getBridge() {
+        return String(Lampa.Storage.get(STORAGE.bridge) || '').trim().replace(/\/+$/, '');
+    }
+    function getBridgeToken() {
+        return String(Lampa.Storage.get(STORAGE.token) || '').trim();
+    }
+    function bridgeURL(path) {
+        return getBridge() + '/' + String(path).replace(/^\/+/, '');
+    }
+    function bridgeRequest(url, post, success, error) {
+        var endpoint = getBridge();
+        var token = getBridgeToken();
+        if (!/^https:\/\/[^/]+/i.test(endpoint)) {
+            error('Укажи HTTPS-адрес личного шлюза');
+            return { abort: function () {} };
+        }
+        if (token.length < 32) {
+            error('Не задан токен шлюза (не менее 32 символов)');
+            return { abort: function () {} };
+        }
+        var xhr = new XMLHttpRequest();
+        var sent = false;
+        function fail(message) {
+            if (!sent) { sent = true; error(message); }
+        }
+        try {
+            xhr.open(post === false || post == null ? 'GET' : 'POST', url, true);
+            xhr.timeout = 20000;
+            xhr.setRequestHeader('X-Rezka-Bridge-Token', token);
+            if (post !== false && post != null) {
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            }
+            xhr.onload = function () {
+                if (sent) return;
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    var message = 'Шлюз HTTP ' + xhr.status;
+                    try {
+                        var result = JSON.parse(xhr.responseText);
+                        message = result.error || result.detail || message;
+                    } catch (ignore) {}
+                    fail(message); return;
+                }
+                sent = true;
+                success(xhr.responseText || '');
+            };
+            xhr.onerror = function () { fail('Не удаётся подключиться к шлюзу: проверь HTTPS и CORS'); };
+            xhr.ontimeout = function () { fail('Таймаут подключения к шлюзу'); };
+            xhr.send(post === false || post == null ? null : post);
+        } catch (ex) { fail(ex.message || 'Ошибка подключения'); }
+        return { abort: function () { sent = true; xhr.abort(); } };
+    }
     function proxify(url) {
-        var p = (Lampa.Storage.get(STORAGE.proxy) || '').trim();
+        if (getBridge()) return bridgeURL('/v1/proxy?url=' + encodeURIComponent(url));
+        var p = String(Lampa.Storage.get(STORAGE.proxy) || '').trim();
         if (!p) return url;
-        // Lampac-style: <proxy>/<url>
         if (p.slice(-1) !== '/') p += '/';
         return p + url;
     }
@@ -169,6 +216,7 @@
      * Network helper – wraps Lampa.Reguest / native fetch.
      */
     function request(opts, success, error) {
+        if (getBridge()) return bridgeRequest(opts.url, opts.post || false, success, error);
         var network = new Lampa.Reguest();
         network.timeout(15000);
         network.silent(opts.url, function (resp) {
@@ -186,6 +234,26 @@
      *  Auth: login to HDREZKA
      * ==================================================== */
     function authenticate(login, password, cb) {
+        if (getBridge()) {
+            var fields = 'login=' + encodeURIComponent(login) + '&password=' + encodeURIComponent(password);
+            bridgeRequest(bridgeURL('/v1/login'), fields, function (response) {
+                var result;
+                try { result = JSON.parse(response); } catch (error) {
+                    Lampa.Storage.set(STORAGE.status, 'error:invalid bridge response');
+                    cb(false, 'Шлюз вернул некорректный JSON'); return;
+                }
+                if (!result.ok || !result.authenticated) {
+                    Lampa.Storage.set(STORAGE.status, 'error:not authorized');
+                    cb(false, result.error || 'Сессия не подтверждена'); return;
+                }
+                Lampa.Storage.set(STORAGE.status, 'logged');
+                cb(true, 'Авторизация через личный шлюз подтверждена');
+            }, function (message) {
+                Lampa.Storage.set(STORAGE.status, 'error:' + message);
+                cb(false, message);
+            });
+            return;
+        }
         var proxy = String(Lampa.Storage.get(STORAGE.proxy) || '').trim();
         if (!/^https:\/\//i.test(getDomain()) || (proxy && !/^https:\/\//i.test(proxy))) {
             cb(false, 'Для авторизации нужен HTTPS у зеркала и прокси');
@@ -412,8 +480,9 @@
             var xhr = new XMLHttpRequest();
             xhr.open('POST', url, true);
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.withCredentials = true;
+            if (getBridge()) xhr.setRequestHeader('X-Rezka-Bridge-Token', getBridgeToken());
+            else xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            xhr.withCredentials = !getBridge();
             xhr.timeout = 15000;
             xhr.onload = function () {
                 try {
@@ -750,6 +819,9 @@
         var canceled = false;
         try {
             net.timeout(15000);
+            if (getBridge()) return bridgeRequest(proxify(url), false, function (result) {
+                if (!canceled) done(null, result);
+            }, function (message) { if (!canceled) done(message); });
             net.silent(proxify(url), function (result) {
                 if (!canceled) done(null, typeof result === 'string' ? result : String(result || ''));
             }, function (err) {
@@ -1048,7 +1120,13 @@
             field: { name: 'Выйти из аккаунта', description: 'Очистить локальный статус; серверную сессию это не закрывает' },
             onChange: function () {
                 logout();
-                Lampa.Noty.show('Локальный статус очищен. Cookie браузера могут остаться.');
+                if (getBridge()) {
+                    bridgeRequest(bridgeURL('/v1/logout'), '', function () {
+                        Lampa.Noty.show('Сессия личного шлюза закрыта');
+                    }, function (message) {
+                        Lampa.Noty.show('Локальный выход выполнен, шлюз: ' + message);
+                    });
+                } else Lampa.Noty.show('Локальный статус очищен. Cookie браузера могут остаться.');
                 $('[data-name="rezka_login_button"] .settings-param__descr').text(statusLabel());
             }
         });
@@ -1083,10 +1161,56 @@
 
         Lampa.SettingsApi.addParam({
             component: 'rezka',
+            param: { name: STORAGE.bridge, type: 'input', values: '', default: '' },
+            field: { name: 'Личный HTTPS-шлюз',
+                description: 'Адрес своего сервера, без /v1; например https://rezka.example.com' }
+        });
+        Lampa.SettingsApi.addParam({
+            component: 'rezka',
+            param: { name: 'rezka_bridge_token_edit', type: 'button' },
+            field: { name: 'Токен личного шлюза',
+                description: getBridgeToken() ? 'Токен настроен (скрыт)' : 'Токен не задан' },
+            onChange: function () {
+                if (!Lampa.Input || !Lampa.Input.edit) return;
+                Lampa.Input.edit({
+                    value: '', title: 'Токен личного шлюза', free: true, nosave: true
+                }, function (value) {
+                    if (!value || String(value).trim().length < 32) {
+                        Lampa.Noty.show('Токен должен содержать не менее 32 символов'); return;
+                    }
+                    Lampa.Storage.set(STORAGE.token, String(value).trim());
+                    Lampa.Noty.show('Токен сохранён');
+                    $('[data-name="rezka_bridge_token_edit"] .settings-param__descr')
+                        .text('Токен настроен (скрыт)');
+                });
+            }
+        });
+        Lampa.SettingsApi.addParam({
+            component: 'rezka',
+            param: { name: 'rezka_bridge_test', type: 'button' },
+            field: { name: 'Проверить личный шлюз', description: 'Сессия, CORS и доступ к зеркалу' },
+            onChange: function () {
+                if (!getBridge()) {
+                    Lampa.Noty.show('Сначала укажите адрес шлюза'); return;
+                }
+                bridgeRequest(bridgeURL('/v1/status'), false, function (response) {
+                    var data;
+                    try { data = JSON.parse(response); }
+                    catch (ignore) { Lampa.Noty.show('Неверный ответ шлюза'); return; }
+                    Lampa.Noty.show(data.authenticated ? 'HDRezka: сессия активна' :
+                        data.gateway ? 'HDRezka: закрытое зеркало требует отдельного входа' :
+                        data.cloudflare ? 'HDRezka: Cloudflare блокирует сервер' :
+                        'Шлюз доступен; авторизация HDRezka не подтверждена');
+                }, function (message) { Lampa.Noty.show('Шлюз: ' + message); });
+            }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'rezka',
             param: { name: STORAGE.proxy, type: 'input', values: '', default: '' },
             field: {
                 name: 'CORS-прокси (опц.)',
-                description: 'Если HDREZKA блокируется CORS, можно указать прокси, например https://your-proxy.com/'
+                description: 'Устаревший режим. Для iPhone используй собственный HTTPS-шлюз выше'
             }
         });
     }
