@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.5.0',
+        version: '1.5.1',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -1647,11 +1647,13 @@
             release_date: year ? year[0] + '-01-01' : '',
             overview: subtitle,
             params: {
-                createInstance: function () {
-                    return Lampa.Maker.make('Card', this, function (mod) {
-                        return mod.only('Card', 'Callback');
-                    });
-                },
+                createInstance: function (item) {
+                        // Lampa passes the media item as the first argument.
+                        // "this" would be item.params, without poster or title.
+                        return Lampa.Maker.make('Card', item, function (mod) {
+                            return mod.only('Card', 'Release', 'Callback');
+                        });
+                    },
                 emit: {
                     onlyEnter: action,
                     onlyFocus: function () {
@@ -1689,9 +1691,11 @@
                 title: 'Все →', name: 'Все →',
                 poster: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">' +'<rect width="400" height="600" rx="25" fill="#272b31"/>' +'<path d="M90 300h210m-65-65 65 65-65 65" stroke="#c5ccd3" stroke-width="15" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +'</svg>'),
                 params: {
-                    createInstance: function () {
-                        return Lampa.Maker.make('Card', this, function (mod) {
-                            return mod.only('Card', 'Callback');
+                    createInstance: function (item) {
+                        // Lampa passes the media item as the first argument.
+                        // "this" would be item.params, without poster or title.
+                        return Lampa.Maker.make('Card', item, function (mod) {
+                            return mod.only('Card', 'Release', 'Callback');
                         });
                     },
                     emit: { onlyEnter: full }
