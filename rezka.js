@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.6.0',
+        version: '1.6.1',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -1710,6 +1710,41 @@
         };
     }
 
+    function rezkaShelfWatchlistMenu(entry, movie) {
+        var title = String(entry.title || '').trim();
+        Lampa.Select.show({
+            title: title,
+            items: [
+                { title: 'Смотреть на HDRezka', action: 'watch' },
+                { title: 'Открыть карточку Lampa', action: 'card' },
+                { title: '🔎 Найти торренты', action: 'torrents' }
+            ],
+            onBack: function () {
+                if (Lampa.Controller && Lampa.Controller.toggle)
+                    Lampa.Controller.toggle('content');
+            },
+            onSelect: function (selected) {
+                if (selected.action === 'card') {
+                    rezkaOpenLampaCard(entry);
+                } else if (selected.action === 'torrents') {
+                    // Native Lampa torrent results. from_search avoids requiring
+                    // a TMDB card before asking the configured Jackett parser.
+                    var year = String(entry.year || '').match(/\\b(?:19|20)\\d{2}\\b/);
+                    Lampa.Activity.push({
+                        url: '',
+                        title: 'Торренты: ' + title,
+                        component: 'torrents',
+                        search: title + (year ? ' ' + year[0] : ''),
+                        from_search: true,
+                        page: 1
+                    });
+                } else if (selected.action === 'watch') {
+                    openRezka(movie);
+                }
+            }
+        });
+    }
+
     function rezkaShelfResult(spec, items, full) {
         var result = [];
         (items || []).slice(0, 24).forEach(function (entry) {
@@ -1726,7 +1761,12 @@
                 rezka_resume_position: entry.status === 'completed' ? 0 :
                     Number(entry.position) || 0
             };
-            result.push(rezkaShelfCard(entry, function () { openRezka(movie); }));
+            result.push(rezkaShelfCard(entry, function () {
+                // Watchlist opens the same source choice as Favorites, plus
+                // direct torrent results. Continue/Watched keep their shortcut.
+                if (spec.kind === 'watchlist') rezkaShelfWatchlistMenu(entry, movie);
+                else openRezka(movie);
+            }));
         });
         return { results: result, title: spec.title,
             // Lampa's native line module displays "Ещё" on total_pages > 1.
