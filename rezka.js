@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.4.0',
+        version: '1.4.1',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -1318,6 +1318,23 @@
             if (description) $('<div class="online__quality"></div>').text(description).appendTo(info);
             e.on('hover:enter', click).appendTo(html);
         }
+        // Native Lampa poster-card layout for HDRezka favorites only.
+        // Categories and "Досмотреть" intentionally keep their text rows.
+        function posterCard(item, click, target) {
+            var card = $('<div class="card selector layer--visible layer--render rezka-fav-card"></div>');
+            var view = $('<div class="card__view"></div>').appendTo(card);
+            if (item.poster) {
+                $('<img class="card__img" alt="">')
+                    .attr('src', item.poster).appendTo(view);
+            } else {
+                $('<div class="rezka-fav-no-poster"></div>')
+                    .text('Нет постера').appendTo(view);
+            }
+            $('<div class="card__title"></div>').text(item.title || '').appendTo(card);
+            if (item.year) $('<div class="card__age"></div>').text(item.year).appendTo(card);
+            card.on('hover:enter', click).appendTo(target);
+            return card;
+        }
         function finish(message) {
             if (destroyed) return;
             if (message) {
@@ -1361,8 +1378,9 @@
                     finish(data.cats.length || data.items.length ? '' : 'В аккаунте нет избранного.');
                     return;
                 }
+                var grid = $('<div class="rezka-fav-grid"></div>').appendTo(html);
                 data.items.forEach(function (item) {
-                    row(item.title, item.year, item.poster, function () {
+                    posterCard(item, function () {
                         Lampa.Select.show({
                             title: item.title,
                             items: [
@@ -1375,7 +1393,7 @@
                                 else openRezka({ title: item.title, year: item.year, rezka_url: item.url });
                             }
                         });
-                    });
+                    }, grid);
                 });
                 if (page > 1) row('← Предыдущая страница', '', '', function () {
                     rezkaFavoritesOpen(cat, page - 1);
@@ -1595,6 +1613,14 @@
             style.textContent = '.rezka-fav-page{padding:.5em 0}' +
                 '.rezka-fav-row{display:flex;align-items:center;gap:1em;min-height:4em}' +
                 '.rezka-fav-cover{width:3.2em;height:4.7em;object-fit:cover;border-radius:.25em}' +
+                '.rezka-fav-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(11em,1fr));gap:1.4em 1em;align-items:start;padding:.5em .5em 1.5em}' +
+                '.rezka-fav-grid .rezka-fav-card{width:100%;min-width:0;margin:0;padding:0;box-sizing:border-box;cursor:pointer}' +
+                '.rezka-fav-grid .card__view{margin-bottom:.7em}' +
+                '.rezka-fav-grid .card__img{object-fit:cover}' +
+                '.rezka-fav-grid .card__title{overflow-wrap:anywhere}' +
+                '.rezka-fav-grid .rezka-fav-card.focus .card__view{outline:.18em solid currentColor;outline-offset:.12em;border-radius:1em}' +
+                '.rezka-fav-no-poster{position:absolute;inset:0;border-radius:1em;display:flex;align-items:center;justify-content:center;text-align:center;padding:1em;background:rgba(127,127,127,.18);color:rgba(255,255,255,.65)}' +
+                '@media(max-width:600px){.rezka-fav-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:1em .7em;padding:.4em .25em 1em}}' +
                 '.rezka-fav-msg{padding:1em;opacity:.8}';
             document.head.appendChild(style);
         }
