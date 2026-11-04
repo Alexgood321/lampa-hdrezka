@@ -6,6 +6,8 @@ process.env.REZKA_ORIGIN = 'https://rezka.fi';
 const { server, allowedPath, targetURL, gatewayForm, hasFavorites } = require('./server.cjs');
 
 test('only expected read-only content and media endpoints allowed', () => {
+    assert.equal(allowedPath('/', 'GET'), true);
+    assert.equal(allowedPath('/', 'POST'), false);
     assert.equal(allowedPath('/favorites/', 'GET'), true);
     assert.equal(allowedPath('/favorites/123/', 'GET'), true);
     assert.equal(allowedPath('/favorites/123/page/2/', 'GET'), true);
