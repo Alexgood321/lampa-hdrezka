@@ -1,0 +1,19 @@
+name: Verify HDRezka watch sync v1.4.0
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify public pinned JS (GitHub CDN)
+        run: |
+          curl -fsS -D /tmp/headers --max-time 25 \
+            -H "Origin: https://lampa.mx" \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@eaf3c32edf6e6f81d34c5a6a11b2b83a88bb752d/rezka.js" -o /tmp/rezka.js
+          grep -q "version: '1.4.0'" /tmp/rezka.js
+          grep -q "Досмотреть HDRezka" /tmp/rezka.js
+          node --check /tmp/rezka.js
+          echo "1.4.0 jsDelivr plugin available"
