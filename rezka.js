@@ -1637,11 +1637,15 @@
         var title = String(entry.title || '').trim();
         var poster = entry.poster ? rezkaPosterURL(entry.poster) : '';
         var year = String(entry.year || '').match(/\b(?:19|20)\d{2}\b/);
+        var subtitle = entry.subtitle || [
+            entry.season ? 'Сезон ' + entry.season : '',
+            entry.episode ? 'Серия ' + entry.episode : '', entry.voice || ''
+        ].filter(Boolean).join(' · ');
         return {
             source: 'custom', title: title, name: title,
             poster: poster, img: poster,
             release_date: year ? year[0] + '-01-01' : '',
-            overview: entry.subtitle || '',
+            overview: subtitle,
             params: {
                 createInstance: function () {
                     return Lampa.Maker.make('Card', this, function (mod) {
