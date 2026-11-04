@@ -1729,7 +1729,7 @@
                 } else if (selected.action === 'torrents') {
                     // Native Lampa torrent results. from_search avoids requiring
                     // a TMDB card before asking the configured Jackett parser.
-                    var year = String(entry.year || '').match(/\\b(?:19|20)\\d{2}\\b/);
+                    var year = String(entry.year || '').match(/\b(?:19|20)\d{2}\b/);
                     Lampa.Activity.push({
                         url: '',
                         title: 'Торренты: ' + title,
