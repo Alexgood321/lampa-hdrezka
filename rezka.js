@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.3.5',
+        version: '1.3.6',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -385,9 +385,14 @@
                     item.textContent || '').replace(/\s+/g, ' ').trim();
                 if (!name) continue;
                 seen[id] = true;
+                // HDRezka itself marks subscription-only dubbing options with
+                // b-prem_translator; do not infer paid access from studio names.
+                var classes = String(item.getAttribute('class') || '');
+                var premium = /(?:^|\s)b-prem_translator(?:\s|$)/.test(classes);
                 voices.push({
                     id: id,
                     name: name,
+                    premium: premium,
                     is_camrip: item.getAttribute('data-camrip') || camrip || '0',
                     is_ads: item.getAttribute('data-ads') || ads || '0',
                     is_director: item.getAttribute('data-director') || director || '0'
@@ -443,6 +448,7 @@
                     info.voice.push({
                         name: defName || 'Перевод по умолчанию',
                         id: defVoiceId,
+                        premium: false,
                         is_camrip: camrip, is_ads: ads, is_director: director
                     });
                 }
@@ -649,6 +655,11 @@
             if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('HDRezka: ' + msg);
         }
 
+        function rezkaVoiceLabel(voice) {
+            if (!voice) return '';
+            return String(voice.name || '') + (voice.premium ? ' · 🔒 Premium' : '');
+        }
+
         function buildList() {
             html.empty();
             if (!state.info) return;
@@ -677,7 +688,7 @@
                 // jQuery.text() safely escapes HTML, including untrusted episode names.
                 var item = $('<div class="online selector"></div>');
                 $('<div class="online__title"></div>').text(String(ep.name || '')).appendTo(item);
-                $('<div class="online__quality"></div>').text(String(voice && voice.name || '')).appendTo(item);
+                $('<div class="online__quality"></div>').text(rezkaVoiceLabel(voice)).appendTo(item);
                 item.on('hover:enter', function () {
                     Lampa.Modal.open({
                         title: 'HDREZKA',
@@ -718,7 +729,7 @@
             if (!state.info) return;
             var info = state.info;
             var f = {
-                voice: info.voice.map(function (v) { return v.name; })
+                voice: info.voice.map(function (v) { return rezkaVoiceLabel(v); })
             };
             if (info.is_series) {
                 f.season = info.season.map(function (s) { return s.name; });
