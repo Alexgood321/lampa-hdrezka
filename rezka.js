@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.3.6',
+        version: '1.4.0',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -562,6 +562,143 @@
     }
 
     /* ====================================================
+     * Cross-device playback progress (own Netlify, separate from HDRezka).
+     * External players only report launch, not watched/time position.
+     * ==================================================== */
+    var rezkaWatchActive = null;
+    function rezkaWatchRequest(method, data, success, error) {
+        if (!getBridge() || !getBridgeToken()) {
+            if (error) error('Для синхронизации нужен личный HTTPS-шлюз');
+            return { abort: function () {} };
+        }
+        var xhr = new XMLHttpRequest();
+        var done = false;
+        try {
+            xhr.open(method, bridgeURL('/v1/watch/progress'), true);
+            xhr.timeout = 15000;
+            xhr.setRequestHeader('X-Rezka-Bridge-Token', getBridgeToken());
+            if (method === 'POST') xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function () {
+                if (done) return;
+                done = true;
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    if (error) error('HTTP ' + xhr.status);
+                    return;
+                }
+                try {
+                    if (success) success(JSON.parse(xhr.responseText));
+                } catch (e) {
+                    if (error) error('Некорректный ответ хранилища');
+                }
+            };
+            xhr.onerror = function () { if (!done && error) error('Нет связи с синхронизацией'); };
+            xhr.ontimeout = function () { if (!done && error) error('Таймаут синхронизации'); };
+            xhr.send(method === 'POST' ? JSON.stringify(data) : null);
+        } catch (e) { if (error) error(e.message || 'Ошибка синхронизации'); }
+        return { abort: function () { done = true; xhr.abort(); } };
+    }
+    function rezkaWatchRead(done, error) {
+        return rezkaWatchRequest('GET', null, function (data) {
+            done(data && Array.isArray(data.items) ? data.items : []);
+        }, error);
+    }
+    function rezkaWatchSave(item) {
+        if (!getBridge()) return;
+        rezkaWatchRequest('POST', item, function () {}, function (message) {
+            console.log('REZKA', 'Watch save:', message);
+        });
+    }
+    function rezkaWatchLaunch(info, movie, voice, season, episode, stream) {
+        if (!getBridge()) return;
+        var title = String(movie && (movie.title || movie.name) || '').trim();
+        if (!title) return;
+        var url = rezkaSiteURL(info.page_url);
+        if (!url) return;
+        rezkaWatchActive = {
+            url: url, title: title,
+            poster: movie.rezka_poster || '',
+            season: season ? String(season.id) : '',
+            episode: episode ? String(episode.episode_id) : '',
+            translator: voice ? String(voice.id) : '',
+            voice: voice ? String(voice.name) : '',
+            position: 0, duration: 0, status: 'started',
+            stream: stream, startedAt: Date.now(),
+            lastSent: 0, resume: Number(movie.rezka_resume_position) || 0,
+            finished: false
+        };
+        rezkaWatchSave(rezkaWatchActive);
+    }
+    function rezkaWatchInstall() {
+        if (!Lampa.Player || !Lampa.Player.listener || !Lampa.Player.listener.follow) return;
+        Lampa.Player.listener.follow('start', function (data) {
+            var current = rezkaWatchActive;
+            if (!current || Date.now() - current.startedAt > 120000) return;
+            if (data && data.url && current.stream && data.url !== current.stream) return;
+            if (!Lampa.PlayerVideo || !Lampa.PlayerVideo.listener ||
+                !Lampa.PlayerVideo.listener.follow) return;
+            var events = Lampa.PlayerVideo.listener;
+            var closed = false;
+            var seeked = false;
+            function updateTime(e) {
+                if (closed || !e) return;
+                var seconds = Number(e.current);
+                var duration = Number(e.duration);
+                if (isFinite(seconds) && seconds >= 0 && seconds < 86400)
+                    current.position = Math.round(seconds);
+                if (isFinite(duration) && duration > 0 && duration < 86400)
+                    current.duration = Math.round(duration);
+                if (current.duration && current.position >= current.duration * 0.9)
+                    current.status = 'completed';
+                else current.status = 'progress';
+                if (Date.now() - current.lastSent >= 20000) {
+                    current.lastSent = Date.now();
+                    rezkaWatchSave(current);
+                }
+            }
+            function pause() {
+                if (!closed && !current.finished) rezkaWatchSave(current);
+            }
+            function ended() {
+                if (closed) return;
+                current.status = 'completed';
+                current.finished = true;
+                if (current.duration) current.position = current.duration;
+                rezkaWatchSave(current);
+            }
+            function attemptSeek() {
+                if (closed || seeked || current.resume < 10) return;
+                try {
+                    var video = Lampa.PlayerVideo.video;
+                    if (video && video.jquery) video = video[0];
+                    if (video && typeof video.currentTime === 'number' &&
+                        (!video.duration || current.resume < video.duration - 5)) {
+                        video.currentTime = current.resume;
+                        seeked = true;
+                    }
+                } catch (ignore) {}
+            }
+            function stop() {
+                if (closed) return;
+                closed = true;
+                if (!current.finished) rezkaWatchSave(current);
+                if (events.remove) {
+                    events.remove('timeupdate', updateTime);
+                    events.remove('pause', pause);
+                    events.remove('ended', ended);
+                    events.remove('canplay', attemptSeek);
+                }
+                if (Lampa.Player.listener.remove) Lampa.Player.listener.remove('destroy', stop);
+                if (rezkaWatchActive === current) rezkaWatchActive = null;
+            }
+            events.follow('timeupdate', updateTime);
+            events.follow('pause', pause);
+            events.follow('ended', ended);
+            events.follow('canplay', attemptSeek);
+            Lampa.Player.listener.follow('destroy', stop);
+        });
+    }
+
+    /* ====================================================
      *  Lampa Online component
      * ==================================================== */
     function component(object) {
@@ -701,6 +838,9 @@
                         info.is_series ? ep : null,
                         function (data) {
                             Lampa.Modal.close();
+                            rezkaWatchLaunch(info, object.movie || {}, voice,
+                                info.is_series ? season : null,
+                                info.is_series ? ep : null, data.file);
                             Lampa.Player.play({
                                 url: data.file,
                                 title: object.movie.title || object.movie.name || '',
@@ -1394,6 +1534,7 @@
             addSettings();
             addOnlineSource();
             addCardButton();
+            rezkaWatchInstall();
             console.log('REZKA', 'plugin started OK');
         } catch (err) {
             console.log('REZKA', 'startPlugin error:', err && (err.stack || err.message));
