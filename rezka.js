@@ -2217,7 +2217,7 @@
                             if (target !== 'rezka') return;
                             var folder = $(this);
                             var caption = folder.find('.settings-folder__name').text();
-                            if (/^\\s*Каналы\\s*$/i.test(caption || ''))
+                            if (/^\s*Каналы\s*$/i.test(caption || ''))
                                 target = folder.attr('data-component') || 'rezka';
                         });
                     }
