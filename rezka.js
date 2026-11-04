@@ -1515,6 +1515,7 @@
 
     function rezkaFavoritesRegister() {
         Lampa.Component.add('rezka_favorites', rezkaFavoritesComponent);
+        Lampa.Component.add('rezka_continue', rezkaContinueComponent);
         if (!document.getElementById('rezka-fav-style')) {
             var style = document.createElement('style');
             style.id = 'rezka-fav-style';
@@ -1528,7 +1529,12 @@
             try { Lampa.Menu.addButton(
                 '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/></svg>',
                 'Избранное HDRezka', function () { rezkaFavoritesOpen('', 1); }
-            ); } catch (error) { console.log('REZKA', 'menu error', error.message); }
+            );
+                Lampa.Menu.addButton(
+                    '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h8l-4-4m4 4-4 4"/><path d="M21 12a9 9 0 1 1-9-9"/></svg>',
+                    'Досмотреть HDRezka', rezkaContinueOpen
+                );
+            } catch (error) { console.log('REZKA', 'menu error', error.message); }
         }
     }
 
@@ -1615,6 +1621,14 @@
             param: { name: 'rezka_open_favorites', type: 'button' },
             field: { name: 'Открыть избранное HDRezka', description: 'Мои коллекции' },
             onChange: function () { rezkaFavoritesOpen('', 1); }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'rezka',
+            param: { name: 'rezka_open_continue', type: 'button' },
+            field: { name: 'Досмотреть HDRezka',
+                description: 'История сайта и синхронизация просмотров между устройствами' },
+            onChange: rezkaContinueOpen
         });
 
         Lampa.SettingsApi.addParam({
