@@ -1,0 +1,21 @@
+name: Check Netlify preview runtime without secrets
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check preview script and protected endpoints
+        run: |
+          set -eu
+          ROOT="https://deploy-preview-12--alexgood321-rezka-lampa.netlify.app"
+          curl -fsS --max-time 20 "$ROOT/rezka.js" -o /tmp/plugin.js
+          grep -q "version: '1.4.0'" /tmp/plugin.js
+          status=$(curl -sS -m 20 -o /tmp/response.json -w '%{http_code}' "$ROOT/v1/watch/progress")
+          echo "Preview watch endpoint HTTP status: $status"
+          if [ "$status" != "401" ]; then exit 1; fi
+          grep -q 'Invalid bridge token' /tmp/response.json
+          echo "Netlify deploy preview: API 1.4.0 protected route active"
