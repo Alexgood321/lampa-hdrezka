@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import handler, { config } from "../netlify/functions/bridge.mjs";
+import handler, { config, __test } from "../netlify/functions/bridge.mjs";
 
 process.env.REZKA_BRIDGE_TOKEN = "a".repeat(64);
 process.env.REZKA_BRIDGE_KEY = "b".repeat(64);
@@ -52,4 +52,24 @@ test("rejects cross-origin targets without outgoing fetch", async () => {
     encodeURIComponent("https://example.com/favorites/")));
   assert.equal(response.status, 502);
   assert.match((await response.json()).detail, /Upstream changed domain/);
+});
+
+test("homepage carousel route is GET-only and token-gated", () => {
+  assert.equal(__test.allowedPath("/", "GET"), true);
+  assert.equal(__test.allowedPath("/", "POST"), false);
+  assert.equal(__test.allowedPath("/admin/", "GET"), false);
+});
+
+test("watch progress never accepts home or favorites as media", () => {
+  const base = new URL("https://rezka.fi/");
+  for (const path of ["/", "/favorites/"]) {
+    assert.throws(() => __test.normalizedWatch({
+      url: "https://rezka.fi" + path, title:"Example",
+      status:"started",position:0
+    },base),/Invalid media URL/);
+  }
+  assert.equal(__test.normalizedWatch({
+    url: "https://rezka.fi/films/drama/movie.html",
+    title: "Example",status:"started",position:0
+  },base).title,"Example");
 });
