@@ -14,7 +14,7 @@ function harness(opts = {}) {
     rezka_bridge_token: 'a'.repeat(64),
     rezka_status: 'logged'
   };
-  const controllers = {}, components = {}, settings = {}, calls = [], scrolls = [], alerts = [], selections = [];
+  const controllers = {}, components = {}, settings = {}, calls = [], scrolls = [], explorers = [], alerts = [], selections = [];
   let current = null, active = null;
 
   class Element {
@@ -103,6 +103,7 @@ function harness(opts = {}) {
       destroy() {}
     },
     Explorer: class {
+      constructor(object) { explorers.push({ noinfo: !!(object.params && object.params.noinfo), object }); }
       appendFiles() {}
       render() { return {}; }
       destroy() {}
@@ -130,7 +131,7 @@ function harness(opts = {}) {
     DOMParser: Parser, XMLHttpRequest: XHR, URL, Navigator: {},
     console: { log() {} }, setTimeout() {}
   }, { timeout: 5000 });
-  return { components, settings, scrolls, calls, alerts, states, selections,
+  return { components, settings, scrolls, explorers, calls, alerts, states, selections,
     open() { settings.rezka_open_favorites.onChange(); },
     openCategory() { Lampa.Activity.push({component:'rezka_favorites',
       rezka_category:'7',rezka_page:1}); },
@@ -206,4 +207,20 @@ test('Continue screen remains a textual list, never converted into poster cards'
   const contents=plugin.substring(plugin.indexOf('function rezkaContinueComponent'),plugin.indexOf('function rezkaFavoritesRegister'));
   assert.match(contents,/online selector rezka-fav-row/);
   assert.doesNotMatch(contents,/posterCard|rezka-fav-grid/);
+});
+
+
+test('HDRezka Favorites and Continue use native full-width Lampa Explorer without sidebar',()=>{
+  const app=harness();
+  app.open();
+  assert.equal(app.explorers[0].noinfo,true,
+    'Favorites must enable built-in Explorer noinfo flag');
+  const before=app.explorers.length;
+  const continueActivity=new app.components.rezka_continue({params:{client_setting:'preserve'}});
+  assert.ok(continueActivity);
+  assert.equal(app.explorers.length,before+1);
+  assert.equal(app.explorers.at(-1).noinfo,true,
+    'Continue must enable built-in Explorer noinfo flag');
+  assert.equal(app.explorers.at(-1).object.params.client_setting,'preserve',
+    'other Explorer params must not be lost');
 });
