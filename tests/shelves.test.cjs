@@ -94,7 +94,9 @@ test('watchlist cards use Lampa Maker and open existing HDRezka player',()=>{
   let result;
   h.registered[0].loader(x=>{result=x;});
   assert.equal(result.title,'HDRezka · Буду смотреть');
-  assert.equal(result.results.length,2);
+  assert.equal(result.results.length,1);
+  assert.equal(result.total_pages,2,'native Lampa header More is enabled');
+  assert.equal(typeof result.params.emit.onlyMore,'function');
   const card=result.results[0];
   assert.equal(card.title,'Периферийные устройства');
   assert.equal(card.poster,'https://cdn.example/poster.jpg');
@@ -107,15 +109,12 @@ test('watchlist cards use Lampa Maker and open existing HDRezka player',()=>{
   assert.equal(instance.data.poster,'https://cdn.example/poster.jpg');
   assert.equal(instance.data.title,'Периферийные устройства');
   // The template's {release_year} is handled by the Release module.
-  const more=result.results[1];
-  const moreInstance=more.params.createInstance(more);
-  assert.equal(moreInstance.data,more);
-  assert.equal(moreInstance.data.title,'Все →');
-  assert.ok(moreInstance.modules.includes('Release'));
+  assert.equal(result.results.filter(c=>c.title==='Все →').length,0);
+  assert.equal(typeof result.params.emit.onlyMore,'function');
   card.params.emit.onlyEnter();
   assert.equal(h.pushed.at(-1).component,'rezka_online');
   assert.equal(h.pushed.at(-1).movie.rezka_url,favoriteEntry.url);
-  result.results[1].params.emit.onlyEnter();
+  result.params.emit.onlyMore();
   assert.equal(h.pushed.at(-1).component,'rezka_favorites');
   assert.equal(h.pushed.at(-1).rezka_category,'386');
 });
@@ -130,7 +129,8 @@ test('Continue shelf retains saved season, episode, translator, and position',()
   h.hooks.register();
   let result;
   h.registered[1].loader(x=>{result=x;});
-  assert.equal(result.results.length,2);
+  assert.equal(result.results.length,1);
+  assert.equal(result.total_pages,2);
   assert.match(result.results[0].overview,/Сезон 2 · Серия 8 · Дубляж/);
   result.results[0].params.emit.onlyEnter();
   const movie=h.pushed.at(-1).movie;
@@ -138,7 +138,7 @@ test('Continue shelf retains saved season, episode, translator, and position',()
   assert.equal(movie.rezka_resume_episode,'8');
   assert.equal(movie.rezka_resume_translator,'711');
   assert.equal(movie.rezka_resume_position,1257);
-  result.results[1].params.emit.onlyEnter();
+  result.params.emit.onlyMore();
   assert.equal(h.pushed.at(-1).component,'rezka_continue');
 });
 
@@ -201,4 +201,14 @@ test('Continue shelf without release year has the Release module to remove place
   assert.ok(instance.modules.includes('Release'));
   assert.equal(instance.data.title,'Ноктюрн');
   assert.equal(instance.data.poster,'https://cdn.example/nocturne.jpg');
+});
+
+test('native More visibility is disabled for empty HDRezka shelves',()=>{
+  const h=harness(true);
+  h.hooks.inject('favorites',(kind,done)=>done([]));
+  h.hooks.register();
+  let result;
+  h.registered[0].loader(data=>{result=data;});
+  assert.equal(result.results.length,0);
+  assert.equal(result.total_pages,1);
 });
