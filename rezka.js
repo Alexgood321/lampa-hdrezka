@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.6.1',
+        version: '1.7.0',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -1675,7 +1675,9 @@
         { id: 'hdrezka_continue', title: 'HDRezka · Досмотреть', kind: 'continue',
           desc: 'История HDRezka и прогресс из Netlify', def: false },
         { id: 'hdrezka_watched', title: 'HDRezka · Просмотрено', kind: 'watched',
-          desc: 'Из коллекции HDRezka «Смотрел»', def: false }
+          desc: 'Из коллекции HDRezka «Смотрел»', def: false },
+        { id: 'hdrezka_newest', title: 'HDRezka · Новинки', kind: 'newest',
+          desc: 'Новые фильмы и сериалы из слайдера главной HDRezka; обновление каждые 30 минут', def: false }
     ];
 
     function rezkaShelfCard(entry, action) {
@@ -1764,7 +1766,8 @@
             result.push(rezkaShelfCard(entry, function () {
                 // Watchlist opens the same source choice as Favorites, plus
                 // direct torrent results. Continue/Watched keep their shortcut.
-                if (spec.kind === 'watchlist') rezkaShelfWatchlistMenu(entry, movie);
+                if (spec.kind === 'watchlist' || spec.kind === 'newest')
+                    rezkaShelfWatchlistMenu(entry, movie);
                 else openRezka(movie);
             }));
         });
@@ -1808,6 +1811,70 @@
             rezkaShelfCats = parsed.cats;
             rezkaShelfCatsAt = Date.now();
             loadWithCategories(parsed.cats);
+        });
+    }
+
+    // Home page's own newest carousel, not the site's general movie catalog.
+    // The selector follows HDRezka's b-newest_slider__list markup.
+    function rezkaParseNewest(html) {
+        var out = { items: [], error: '' };
+        var doc;
+        try { doc = new DOMParser().parseFromString(String(html || ''), 'text/html'); }
+        catch (e) { out.error = 'Не удалось прочитать HTML новинок'; return out; }
+        if (doc.querySelector('#challenge-form, .cf-challenge') ||
+            /just a moment|checking your browser|attention required/i.test(doc.title || '')) {
+            out.error = 'Сайт ограничил доступ к новинкам'; return out;
+        }
+        if (doc.querySelector('form[action*="login"] input[type="password"], form[action*="login"] input[name="login_password"]') ||
+            /<title[^>]*>\s*(?:Вход|Login|Sign in)\s*<\/title>/i.test(String(html || ''))) {
+            out.error = 'Главная HDRezka показывает форму входа'; return out;
+        }
+        var cards = doc.querySelectorAll('.b-newest_slider__list .b-content__inline_item');
+        if (!cards.length) {
+            out.error = 'На главной HDRezka не найден слайдер новинок'; return out;
+        }
+        var used = {};
+        for (var i = 0; i < cards.length; i++) {
+            var card = cards[i];
+            var link = card.querySelector('.b-content__inline_item-link a[href]');
+            if (!link) continue;
+            var url = rezkaSiteURL(link.getAttribute('href'));
+            if (!url) continue;
+            var pathname = new URL(url).pathname;
+            if (!/^\/(?:films|series|cartoons|animation|anime|documentary|shows|tv-series)\//i.test(pathname) ||
+                used[pathname]) continue;
+            var title = (link.getAttribute('title') || link.textContent || '').trim();
+            if (!title) continue;
+            used[pathname] = true;
+            var image = card.querySelector('.b-content__inline_item-cover img');
+            var meta = card.querySelector('.b-content__inline_item-link div');
+            var year = (meta && meta.textContent || '').match(/\b(?:19|20)\d{2}\b/);
+            var badge = card.querySelector('.b-newest_series, .b-content__inline_item-cover .series, .b-content__inline_item-cover .num');
+            var episode = (badge && badge.textContent || '').replace(/\s+/g, ' ').trim();
+            out.items.push({
+                title: title, year: year ? year[0] : '', url: url,
+                poster: image ? rezkaPosterURL(image.getAttribute('data-src') ||
+                    image.getAttribute('data-original') ||
+                    image.getAttribute('src')) : '',
+                subtitle: /(?:сезон|серия)/i.test(episode) ? episode.slice(0, 90) : ''
+            });
+        }
+        if (!out.items.length) out.error = 'Новинки найдены, но карточки не распознаны';
+        return out;
+    }
+
+    var rezkaNewestError = '';
+    function rezkaShelfNewest(done) {
+        rezkaFetchFavorites('/', function (error, html) {
+            if (error) {
+                rezkaNewestError = /403|Route not allowed|Path not allowed/i.test(String(error)) ?
+                    'Шлюз Netlify пока не разрешает загрузку главной HDRezka' : String(error);
+                done([]);
+                return;
+            }
+            var parsed = rezkaParseNewest(html);
+            rezkaNewestError = parsed.error || '';
+            done(parsed.items);
         });
     }
 
@@ -1870,9 +1937,12 @@
     function rezkaShelfLoad(spec, callback) {
         var key = getDomain() + '|' + getBridge() + '|' + spec.id;
         var cached = rezkaShelfCache[key];
-        if (cached && Date.now() - cached.at < (spec.kind === 'continue' ? 45000 : 180000)) {
+        var ttl = spec.kind === 'continue' ? 45000 :
+            spec.kind === 'newest' ? (cached && cached.items.length ? 1800000 : 45000) : 180000;
+        if (cached && Date.now() - cached.at < ttl) {
             callback(rezkaShelfResult(spec, cached.items, function () {
                 if (spec.kind === 'continue') rezkaContinueOpen();
+                else if (spec.kind === 'newest') rezkaNewestOpen();
                 else rezkaFavoritesOpen(rezkaShelfFindCategory(rezkaShelfCats || [],
                     spec.kind), 1);
             }));
@@ -1882,11 +1952,13 @@
             rezkaShelfCache[key] = { at: Date.now(), items: items || [] };
             callback(rezkaShelfResult(spec, items, function () {
                 if (spec.kind === 'continue') rezkaContinueOpen();
+                else if (spec.kind === 'newest') rezkaNewestOpen();
                 else rezkaFavoritesOpen(rezkaShelfFindCategory(rezkaShelfCats || [],
                     spec.kind), 1);
             }));
         }
         if (spec.kind === 'continue') rezkaShelfContinue(complete);
+        else if (spec.kind === 'newest') rezkaShelfNewest(complete);
         else rezkaShelfFavorites(spec.kind, complete);
     }
 
