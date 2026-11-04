@@ -1,0 +1,24 @@
+name: Verify HDRezka home shelves 1.5.0 final
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check pinned JS availability and syntax
+        run: |
+          set -eu
+          curl -fsS -D /tmp/headers -m 25 -H "Origin: https://lampa.mx" \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@1fdc6a5c514e504cce417bb2be86b124238d6fbd/rezka.js" -o /tmp/rezka.js
+          grep -q "version: '1.5.0'" /tmp/rezka.js
+          grep -q 'hdrezka_continue' /tmp/rezka.js
+          grep -qi '^access-control-allow-origin: \*' /tmp/headers
+          node --check /tmp/rezka.js
+          curl -fsS -m 25 \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-plugins@489ebf40387af90e5a20a6ea909d78bf90b8a348/surs.js" -o /tmp/surs.js
+          grep -q 'SURS Pro v3.7.4' /tmp/surs.js
+          node --check /tmp/surs.js
+          echo "HDRezka 1.5.0 and SURS 3.7.4 pinned CDN validated"
