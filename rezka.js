@@ -1683,27 +1683,14 @@
             };
             result.push(rezkaShelfCard(entry, function () { openRezka(movie); }));
         });
-        // Explicit "Все" tile works even in SURS modes without category_full
-        // pagination support for private custom sources.
-        if (result.length) {
-            result.push({
-                source: 'custom',
-                title: 'Все →', name: 'Все →',
-                poster: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">' +'<rect width="400" height="600" rx="25" fill="#272b31"/>' +'<path d="M90 300h210m-65-65 65 65-65 65" stroke="#c5ccd3" stroke-width="15" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +'</svg>'),
-                params: {
-                    createInstance: function (item) {
-                        // Lampa passes the media item as the first argument.
-                        // "this" would be item.params, without poster or title.
-                        return Lampa.Maker.make('Card', item, function (mod) {
-                            return mod.only('Card', 'Release', 'Callback');
-                        });
-                    },
-                    emit: { onlyEnter: full }
-                }
-            });
-        }
         return { results: result, title: spec.title,
-            params: { items: { view: 20, mapping: 'line' } } };
+            // Lampa's native line module displays "Ещё" on total_pages > 1.
+            // onlyMore takes priority over the default TMDB category handler.
+            total_pages: result.length ? 2 : 1,
+            params: {
+                items: { view: 20, mapping: 'line' },
+                emit: { onlyMore: full }
+            } };
     }
 
     function rezkaShelfFindCategory(cats, kind) {
