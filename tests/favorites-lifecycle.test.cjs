@@ -217,7 +217,7 @@ test('favorites card has a visible fallback when poster is missing',()=>{
 test('Continue screen remains a textual list, never converted into poster cards',()=>{
   const app=harness();
   assert.ok(app.components.rezka_continue,'existing Continue component retained');
-  const contents=plugin.substring(plugin.indexOf('function rezkaContinueComponent'),plugin.indexOf('function rezkaFavoritesRegister'));
+  const contents=plugin.substring(plugin.indexOf('function rezkaContinueComponent'),plugin.indexOf('var rezkaShelfCache'));
   assert.match(contents,/online selector rezka-fav-row/);
   assert.doesNotMatch(contents,/posterCard|rezka-fav-grid/);
 });
