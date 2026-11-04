@@ -12,13 +12,19 @@ const hook = [
   '        specs: rezkaShelfSpecs,',
   '        category: rezkaShelfFindCategory,',
   '        load: rezkaShelfLoad,',
-  '        make: rezkaShelfResult,',
+  '        make: rezkaShelfResult,
+        parseNewest: rezkaParseNewest,',
   "        inject: function(kind, handler) {",
   "            if (kind === 'favorites') rezkaShelfFavorites = handler;",
-  "            if (kind === 'continue') rezkaShelfContinue = handler;",
+  "            if (kind === 'continue') rezkaShelfContinue = handler;
+            if (kind === 'newest') rezkaShelfNewest = handler;",
   '        },',
   '        setCategories: function(cats) { rezkaShelfCats = cats; },',
-  '        clearCache: function() { rezkaShelfCache = {}; }',
+  '        clearCache: function() { rezkaShelfCache = {}; },
+        ageNewest: function(milliseconds) {
+            var key = getDomain() + '|' + getBridge() + '|hdrezka_newest';
+            if (rezkaShelfCache[key]) rezkaShelfCache[key].at -= milliseconds;
+        }',
   '    };',
   '})();'
 ].join('\n');
@@ -60,19 +66,20 @@ test('shelves are opt-in and register with stable IDs through SURS manager',()=>
   const h=harness(true);
   h.hooks.register();
   assert.deepEqual(Array.from(h.registered,x=>x.id),
-    ['hdrezka_watchlist','hdrezka_continue','hdrezka_watched']);
+    ['hdrezka_watchlist','hdrezka_continue','hdrezka_watched','hdrezka_newest']);
   assert.ok(h.registered.every(x=>x.def===false&&x.cat==='plugin'));
   assert.ok(h.registered.every(x=>typeof x.loader==='function'));
   assert.match(h.registered[0].title,/Буду смотреть/);
   assert.match(h.registered[1].title,/Досмотреть/);
   assert.match(h.registered[2].title,/Просмотрено/);
+  assert.match(h.registered[3].title,/Новинки/);
 });
 
 test('shelves are discoverable even when HDRezka loads before SURS',()=>{
   const h=harness(false);
   h.hooks.register();
   assert.deepEqual(Object.keys(h.win.SURS_EXTERNAL_SHELVES).sort(),
-    ['hdrezka_continue','hdrezka_watched','hdrezka_watchlist']);
+    ['hdrezka_continue','hdrezka_newest','hdrezka_watched','hdrezka_watchlist']);
   assert.ok(!h.win.SURS_EXTERNAL_SHELVES.hdrezka_watched.def);
 });
 
@@ -255,4 +262,46 @@ test('direct torrent search handles missing release year',()=>{
   const torrent=h.pushed.at(-1);
   assert.equal(torrent.component,'torrents');
   assert.equal(torrent.search,'Периферийные устройства');
+});
+
+test('newest shelf preserves homepage ordering and opens source chooser',()=>{
+  const h=harness(true);
+  const newest=[
+    {...favoriteEntry,title:'Обитель зла'},
+    {...favoriteEntry,title:'Тенсинг',url:'https://flymaterez.net/films/drama/12345-tension.html'}
+  ];
+  h.hooks.inject('newest',cb=>cb(newest));
+  h.hooks.register();
+  let result;
+  h.registered[3].loader(x=>{result=x;});
+  assert.equal(result.results.length,2);
+  assert.deepEqual(Array.from(result.results,x=>x.title),['Обитель зла','Тенсинг']);
+  assert.equal(result.total_pages,2);
+  result.results[0].params.emit.onlyEnter();
+  assert.deepEqual(Array.from(h.selects[0].items,x=>x.action),['watch','card','torrents']);
+  result.params.emit.onlyMore();
+  assert.equal(h.pushed.at(-1).component,'rezka_newest');
+});
+
+test('newest cache refreshes after 30 minutes but not immediately',()=>{
+  const h=harness(true);
+  let fetched=0;
+  h.hooks.inject('newest',done=>{fetched++;done([favoriteEntry]);});
+  h.hooks.register();
+  h.registered[3].loader(()=>{});
+  h.registered[3].loader(()=>{});
+  assert.equal(fetched,1);
+  h.hooks.ageNewest(30*60*1000+1000);
+  h.registered[3].loader(()=>{});
+  assert.equal(fetched,2);
+});
+
+test('newest empty source is not populated with unrelated catalog items',()=>{
+  const h=harness(true);
+  h.hooks.inject('newest',done=>done([]));
+  h.hooks.register();
+  let data;
+  h.registered[3].loader(x=>{data=x;});
+  assert.deepEqual(Array.from(data.results),[]);
+  assert.equal(data.total_pages,1);
 });
