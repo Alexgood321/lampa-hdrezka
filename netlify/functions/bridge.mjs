@@ -54,6 +54,8 @@ function safeURL(url, base) {
 function allowedPath(path, method) {
   if (method === "POST") return /^\/ajax\/(?:get_cdn_series|login)\/?$/.test(path);
   if (method !== "GET") return false;
+  // Public homepage slider: token protected, same-origin only, read-only.
+  if (path === "/") return true;
   if (/^\/favorites\/(?:\d+\/)?(?:page\/\d+\/)?$/.test(path)) return true;
   if (/^\/continue\/(?:page\/\d+\/)?$/.test(path)) return true;
   if (path === "/engine/ajax/search.php") return true;
@@ -202,7 +204,9 @@ function normalizedWatch(payload, base) {
     throw new Error("Invalid viewing data");
   }
   const url = safeURL(String(payload.url || ""), base);
-  if (!allowedPath(url.pathname, "GET")) throw new Error("Invalid media URL");
+  // Playback progress must never accept the new homepage or collection routes.
+  if (!/^\/(?:films|series|cartoons|animation|anime|documentary|shows|tv-series)\/[a-z0-9_\u0400-\u04ff/%.-]+\/?$/i.test(url.pathname))
+    throw new Error("Invalid media URL");
   url.hash = "";
   url.search = "";
   const string = (value, max) => String(value || "").trim().slice(0, max);
