@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.3.4',
+        version: '1.3.5',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -366,6 +366,39 @@
     /* ====================================================
      *  Parse film page → translators / seasons / film_id
      * ==================================================== */
+    function rezkaParseTranslators(html, defaultId, camrip, ads, director) {
+        var voices = [];
+        var seen = {};
+        try {
+            var doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+            // Current HDRezka markup: #translators-list > li[data-translator_id].
+            // Older mirrors used .b-translator__list. Handle both.
+            var list = doc.getElementById('translators-list') ||
+                doc.querySelector('.b-translator__list');
+            var nodes = list ? list.querySelectorAll('[data-translator_id]') :
+                doc.querySelectorAll('li.b-translator__item[data-translator_id]');
+            for (var i = 0; i < nodes.length; i++) {
+                var item = nodes[i];
+                var id = String(item.getAttribute('data-translator_id') || '').trim();
+                if (!/^\d+$/.test(id) || seen[id]) continue;
+                var name = String(item.getAttribute('title') ||
+                    item.textContent || '').replace(/\s+/g, ' ').trim();
+                if (!name) continue;
+                seen[id] = true;
+                voices.push({
+                    id: id,
+                    name: name,
+                    is_camrip: item.getAttribute('data-camrip') || camrip || '0',
+                    is_ads: item.getAttribute('data-ads') || ads || '0',
+                    is_director: item.getAttribute('data-director') || director || '0'
+                });
+            }
+        } catch (error) {
+            console.log('REZKA', 'translator list parsing error', error && error.message);
+        }
+        return voices;
+    }
+
     function fetchFilmPage(filmUrl, cb, err) {
         request({ url: proxify(rezkaSiteURL(filmUrl) || filmUrl), dataType: 'text' }, function (str) {
             var info = {
@@ -397,21 +430,9 @@
                 if (!fm) fm = str.match(/data-favs="([^"]+)"/);
                 if (fm) info.favs = fm[1];
 
-                // translators block
-                var tm = str.match(/<ul[^>]+class="b-translator__list"[\s\S]*?<\/ul>/);
-                if (tm) {
-                    var d = document.createElement('div');
-                    d.innerHTML = tm[0];
-                    d.querySelectorAll('.b-translator__item').forEach(function (li) {
-                        info.voice.push({
-                            name: (li.getAttribute('title') || li.textContent || '').trim(),
-                            id: li.getAttribute('data-translator_id') || defVoiceId,
-                            is_camrip:   li.getAttribute('data-camrip')   || camrip,
-                            is_ads:      li.getAttribute('data-ads')      || ads,
-                            is_director: li.getAttribute('data-director') || director
-                        });
-                    });
-                }
+                // HDRezka currently renders voices in #translators-list.
+                info.voice = rezkaParseTranslators(str, defVoiceId, camrip, ads, director);
+                info.default_voice_id = String(defVoiceId);
                 if (!info.voice.length) {
                     var defName = '';
                     var dn = str.match(/<h2>В переводе<\/h2>:[\s\S]*?<td[^>]*>(.*?)<\/td>/);
@@ -420,7 +441,7 @@
                         defName = (dd.textContent || '').trim();
                     }
                     info.voice.push({
-                        name: defName || 'Оригинал',
+                        name: defName || 'Перевод по умолчанию',
                         id: defVoiceId,
                         is_camrip: camrip, is_ads: ads, is_director: director
                     });
@@ -734,6 +755,11 @@
                 fetchFilmPage(url, function (info) {
                     if (onlineDestroyed) return;
                     state.info = info;
+                    // Preserve HDRezka's initially selected translator rather than assuming index 0.
+                    var defaultIndex = info.voice.findIndex(function (v) {
+                        return String(v.id) === String(info.default_voice_id);
+                    });
+                    state.choice.voice = defaultIndex >= 0 ? defaultIndex : 0;
                     self.activity.loader(false);
                     try {
                         buildFilter();
