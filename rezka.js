@@ -604,7 +604,10 @@
     }
     function rezkaWatchSave(item) {
         if (!getBridge()) return;
-        rezkaWatchRequest('POST', item, function () {}, function (message) {
+        rezkaWatchRequest('POST', item, function () {
+            // New episodes should appear on the home shelf immediately.
+            rezkaShelfCache = {};
+        }, function (message) {
             console.log('REZKA', 'Watch save:', message);
         });
     }
@@ -1632,7 +1635,7 @@
 
     function rezkaShelfCard(entry, action) {
         var title = String(entry.title || '').trim();
-        var poster = rezkaPosterURL(entry.poster);
+        var poster = entry.poster ? rezkaPosterURL(entry.poster) : '';
         var year = String(entry.year || '').match(/\b(?:19|20)\d{2}\b/);
         return {
             source: 'custom', title: title, name: title,
@@ -1680,7 +1683,7 @@
             result.push({
                 source: 'custom',
                 title: 'Все →', name: 'Все →',
-                poster: './img/img_broken.svg', img: './img/img_broken.svg',
+                poster: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">' +'<rect width="400" height="600" rx="25" fill="#272b31"/>' +'<path d="M90 300h210m-65-65 65 65-65 65" stroke="#c5ccd3" stroke-width="15" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +'</svg>'),
                 params: {
                     createInstance: function () {
                         return Lampa.Maker.make('Card', this, function (mod) {
