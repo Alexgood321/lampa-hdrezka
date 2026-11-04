@@ -21,8 +21,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$STORE_DISPATCH_TOKEN" ]; then
-            echo "::warning::STORE_DISPATCH_TOKEN is missing: automatic cross-repository dispatch is inactive."
-            exit 0
+            echo "::error title=My Store dispatch disabled::STORE_DISPATCH_TOKEN is missing. Add this Actions secret with Contents: write access to Alexgood321/store."
+            echo "## My Store: cross-repository updates disabled" >> "$GITHUB_STEP_SUMMARY"
+            echo "Add repository secret \`STORE_DISPATCH_TOKEN\` with access to \`Alexgood321/store\` (Contents: Read and write)." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
           payload=$(printf '{"event_type":"lampa-plugin-updated","client_payload":{"repository":"%s","sha":"%s"}}' "$GITHUB_REPOSITORY" "$GITHUB_SHA")
           curl --fail-with-body --silent --show-error --retry 2 --retry-delay 5 \
