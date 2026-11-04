@@ -12,19 +12,19 @@ const hook = [
   '        specs: rezkaShelfSpecs,',
   '        category: rezkaShelfFindCategory,',
   '        load: rezkaShelfLoad,',
-  '        make: rezkaShelfResult,
-        parseNewest: rezkaParseNewest,',
+  '        make: rezkaShelfResult,',
+  '        parseNewest: rezkaParseNewest,',
   "        inject: function(kind, handler) {",
   "            if (kind === 'favorites') rezkaShelfFavorites = handler;",
-  "            if (kind === 'continue') rezkaShelfContinue = handler;
-            if (kind === 'newest') rezkaShelfNewest = handler;",
+  "            if (kind === 'continue') rezkaShelfContinue = handler;",
+  "            if (kind === 'newest') rezkaShelfNewest = handler;",
   '        },',
   '        setCategories: function(cats) { rezkaShelfCats = cats; },',
-  '        clearCache: function() { rezkaShelfCache = {}; },
-        ageNewest: function(milliseconds) {
-            var key = getDomain() + '|' + getBridge() + '|hdrezka_newest';
-            if (rezkaShelfCache[key]) rezkaShelfCache[key].at -= milliseconds;
-        }',
+  '        clearCache: function() { rezkaShelfCache = {}; },',
+  '        ageNewest: function(milliseconds) {',
+  "            var key = getDomain() + '|' + getBridge() + '|hdrezka_newest';",
+  '            if (rezkaShelfCache[key]) rezkaShelfCache[key].at -= milliseconds;',
+  '        }',
   '    };',
   '})();'
 ].join('\n');
