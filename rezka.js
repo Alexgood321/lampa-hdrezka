@@ -797,6 +797,30 @@
             return String(voice.name || '') + (voice.premium ? ' · 🔒 Premium' : '');
         }
 
+        function rezkaApplyResume(info, resume) {
+            if (!resume) return false;
+            var voiceId = String(resume.translator || '');
+            var voiceName = String(resume.voice || '').toLowerCase().trim();
+            var seasonId = String(resume.season || '');
+            var episodeId = String(resume.episode || '');
+            var voiceIndex = info.voice.findIndex(function (v) {
+                return voiceId ? String(v.id) === voiceId :
+                    !!voiceName && String(v.name || '').toLowerCase().trim() === voiceName;
+            });
+            if (voiceIndex >= 0) state.choice.voice = voiceIndex;
+            var seasonIndex = info.season.findIndex(function (v) {
+                return seasonId && String(v.id) === seasonId;
+            });
+            if (seasonIndex >= 0) state.choice.season = seasonIndex;
+            if (episodeId) object.movie.rezka_resume_episode = episodeId;
+            if (seasonId) object.movie.rezka_resume_season = seasonId;
+            if (voiceId) object.movie.rezka_resume_translator = voiceId;
+            if (voiceName) object.movie.rezka_resume_voice = resume.voice;
+            var seconds = Number(resume.position) || 0;
+            object.movie.rezka_resume_position = resume.status === 'completed' ? 0 : seconds;
+            return voiceIndex >= 0 || seasonIndex >= 0 || !!episodeId;
+        }
+
         function buildList() {
             html.empty();
             if (!state.info) return;
@@ -812,6 +836,14 @@
                     return;
                 }
                 items = info.episode.filter(function (e) { return String(e.season_id) === String(season.id); });
+                if (object.movie && String(object.movie.rezka_resume_season || '') === String(season.id) &&
+                    object.movie.rezka_resume_episode) {
+                    var resumeEp = String(object.movie.rezka_resume_episode);
+                    items = items.slice().sort(function (a,b) {
+                        return (String(b.episode_id) === resumeEp ? 1 : 0) -
+                            (String(a.episode_id) === resumeEp ? 1 : 0);
+                    });
+                }
                 if (!items.length) {
                     showError('Список серий не найден на странице HDRezka');
                     return;
@@ -824,7 +856,12 @@
                 // Lampa.Utils.escape does not exist in standard Lampa.
                 // jQuery.text() safely escapes HTML, including untrusted episode names.
                 var item = $('<div class="online selector"></div>');
-                $('<div class="online__title"></div>').text(String(ep.name || '')).appendTo(item);
+                var resumeRow = object.movie &&
+                    String(object.movie.rezka_resume_episode || '') === String(ep.episode_id) &&
+                    String(object.movie.rezka_resume_season || '') === String(season && season.id || '');
+                $('<div class="online__title"></div>').text(
+                    (resumeRow ? '▶ Продолжить · ' : '') + String(ep.name || '')
+                ).appendTo(item);
                 $('<div class="online__quality"></div>').text(rezkaVoiceLabel(voice)).appendTo(item);
                 item.on('hover:enter', function () {
                     Lampa.Modal.open({
@@ -888,6 +925,11 @@
             filter.onSelect = function (type, a, b) {
                 if (type !== 'filter' || !a || !a.stype || !b || typeof b.index !== 'number') return;
                 state.choice[a.stype] = b.index;
+                state.userTouched = true;
+                if (a.stype === 'season') {
+                    object.movie.rezka_resume_episode = '';
+                    object.movie.rezka_resume_position = 0;
+                }
                 buildFilter();
                 try { buildList(); }
                 catch (renderError) {
@@ -911,6 +953,16 @@
                         return String(v.id) === String(info.default_voice_id);
                     });
                     state.choice.voice = defaultIndex >= 0 ? defaultIndex : 0;
+                    if (movie.rezka_resume_episode || movie.rezka_resume_translator ||
+                        movie.rezka_resume_voice) {
+                        rezkaApplyResume(info, {
+                            season: movie.rezka_resume_season,
+                            episode: movie.rezka_resume_episode,
+                            translator: movie.rezka_resume_translator,
+                            voice: movie.rezka_resume_voice,
+                            position: movie.rezka_resume_position || 0
+                        });
+                    }
                     self.activity.loader(false);
                     try {
                         buildFilter();
@@ -920,6 +972,25 @@
                         showError('Ошибка отображения плеера: ' + (renderError.message || renderError));
                     }
                     self.activity.toggle();
+
+                    // Also restore selection when title was opened through a
+                    // normal Lampa card instead of the HDRezka history screen.
+                    if (getBridge()) {
+                        rezkaWatchRead(function (records) {
+                            if (onlineDestroyed || state.userTouched) return;
+                            var page = rezkaSiteURL(info.page_url);
+                            if (!page) return;
+                            var path = new URL(page).pathname;
+                            var record = records.filter(function (v) {
+                                try { return new URL(v.url).pathname === path; }
+                                catch (ignore) { return false; }
+                            })[0];
+                            if (!record) return;
+                            rezkaApplyResume(info, record);
+                            buildFilter();
+                            buildList();
+                        }, function () {});
+                    }
                 }, function (msg) {
                     if (onlineDestroyed) return;
                     self.activity.loader(false);
