@@ -1272,7 +1272,9 @@
         var explorer = new Lampa.Explorer(object);
         var html = $('<div class="rezka-fav-page"></div>');
         var xhr = null, destroyed = false, initialized = false, self = this;
+        var nextPage = 0, paging = false, retryAfter = 0, gridRoot = null, seen = {};
         this.create = function () {
+            scroll.onEnd = loadNextPage;
             scroll.minus();
             explorer.appendFiles(scroll.render());
             return this.render();
@@ -1352,6 +1354,68 @@
             self.activity.loader(false);
             self.activity.toggle();
         }
+        function appendMovie(item, initial) {
+            if (!gridRoot || !item || !item.title) return false;
+            var url = rezkaSiteURL(item.url);
+            if (!url) return false;
+            var key = new URL(url).pathname;
+            if (seen[key]) return false;
+            seen[key] = true;
+            var card = posterCard(item, function () {
+                Lampa.Select.show({
+                    title: item.title,
+                    items: [
+                        { title: 'Смотреть на HDRezka', action: 'watch' },
+                        { title: 'Открыть карточку Lampa', action: 'card' }
+                    ],
+                    onBack: function () { Lampa.Controller.toggle('content'); },
+                    onSelect: function (selected) {
+                        if (selected.action === 'card') rezkaOpenLampaCard(item);
+                        else openRezka({ title: item.title, year: item.year, rezka_url: item.url });
+                    }
+                });
+            }, gridRoot);
+            if (!initial && Lampa.Controller &&
+                typeof Lampa.Controller.collectionAppend === 'function') {
+                Lampa.Controller.collectionAppend(card);
+            }
+            return true;
+        }
+        function loadNextPage() {
+            if (destroyed || !gridRoot || paging || !nextPage ||
+                Date.now() < retryAfter) return;
+            paging = true;
+            var page = nextPage;
+            var cat = object.rezka_category || '';
+            var path = '/favorites/' + (/^\d+$/.test(cat) ? cat + '/' : '') +
+                'page/' + page + '/';
+            xhr = rezkaFetchFavorites(path, function (error, response) {
+                if (destroyed) return;
+                paging = false;
+                if (error) {
+                    retryAfter = Date.now() + 5000;
+                    if (Lampa.Noty && Lampa.Noty.show)
+                        Lampa.Noty.show('HDRezka: ошибка загрузки страницы ' + page);
+                    return;
+                }
+                var data;
+                try { data = rezkaParseFavorites(response, page); }
+                catch (e) { data = {error: 'Ошибка разбора страницы'}; }
+                if (data.error) {
+                    retryAfter = Date.now() + 5000;
+                    if (Lampa.Noty && Lampa.Noty.show)
+                        Lampa.Noty.show('HDRezka: ' + data.error);
+                    return;
+                }
+                var added = 0;
+                data.items.forEach(function (item) {
+                    if (appendMovie(item, false)) added++;
+                });
+                nextPage = data.next && added ? page + 1 : 0;
+                if (Lampa.Layer && Lampa.Layer.visible)
+                    Lampa.Layer.visible(scroll.render(true));
+            });
+        }
         this.initialize = function () {
             self.activity.loader(true);
             var cat = object.rezka_category || '';
@@ -1386,28 +1450,9 @@
                     return;
                 }
                 var grid = $('<div class="rezka-fav-grid"></div>').appendTo(html);
-                data.items.forEach(function (item) {
-                    posterCard(item, function () {
-                        Lampa.Select.show({
-                            title: item.title,
-                            items: [
-                                { title: 'Смотреть на HDRezka', action: 'watch' },
-                                { title: 'Открыть карточку Lampa', action: 'card' }
-                            ],
-                            onBack: function () { Lampa.Controller.toggle('content'); },
-                            onSelect: function (selected) {
-                                if (selected.action === 'card') rezkaOpenLampaCard(item);
-                                else openRezka({ title: item.title, year: item.year, rezka_url: item.url });
-                            }
-                        });
-                    }, grid);
-                });
-                if (page > 1) row('← Предыдущая страница', '', '', function () {
-                    rezkaFavoritesOpen(cat, page - 1);
-                });
-                if (data.next) row('Следующая страница →', '', '', function () {
-                    rezkaFavoritesOpen(cat, page + 1);
-                });
+                gridRoot = grid;
+                data.items.forEach(function (item) { appendMovie(item, true); });
+                nextPage = data.next ? page + 1 : 0;
                 finish(data.items.length ? '' : 'Коллекция пуста.');
             });
         };
