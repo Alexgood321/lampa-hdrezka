@@ -185,7 +185,7 @@ test('empty account collections do not invent cards or show bogus items',()=>{
   assert.equal(output.results.length,0);
 });
 
-test('all three shelves create full, not empty, Lampa cards',()=>{
+test('all four shelves create complete Lampa cards',()=>{
   const h=harness(true);
   const categories=[
     {id:'386',name:'Буду смотреть'},
@@ -194,6 +194,7 @@ test('all three shelves create full, not empty, Lampa cards',()=>{
   h.hooks.setCategories(categories);
   h.hooks.inject('favorites',(kind,cb)=>cb([favoriteEntry]));
   h.hooks.inject('continue',cb=>cb([favoriteEntry]));
+  h.hooks.inject('newest',cb=>cb([favoriteEntry]));
   h.hooks.register();
   h.registered.forEach((shelf)=>{
     let output;
