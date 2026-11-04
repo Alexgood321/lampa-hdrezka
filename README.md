@@ -21,9 +21,9 @@
 
 **Установочная ссылка HDRezka 1.7.1:**
 
-`https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@1dc38d15867e776a1d560f935a18c69f6d71980f/rezka.js`
+`https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@c7c48fcab739f79c3a9c3b2522deaa3cebaedd6d/rezka.js`
 
-Сервер Netlify, токен, SURS Pro и синхронизация просмотра не изменены. Проверка: 69/69 тестов и публичный CDN-файл. Реальный UI новой версии ещё не проверен на устройствах.
+Сервер Netlify, токен, SURS Pro и синхронизация просмотра не изменены. Проверка: 70/70 тестов и публичный CDN-файл. Реальный UI новой версии ещё не проверен на устройствах.
 
 ## Версия 1.7.0: «HDRezka · Новинки» на главной Lampa
 
