@@ -1262,7 +1262,11 @@
 
     function rezkaFavoritesComponent(object) {
         var scroll = new Lampa.Scroll({ mask: true, over: true });
-        // Native Lampa layout: hide the unrelated movie info sidebar.\n        // The explorer becomes full-width via its built-in explorer--fullsize class.\n        object.params = object.params || {};\n        object.params.noinfo = true;\n        var explorer = new Lampa.Explorer(object);
+        // Native Lampa layout: hide the unrelated movie info sidebar.
+        // The explorer becomes full-width via its built-in explorer--fullsize class.
+        object.params = object.params || {};
+        object.params.noinfo = true;
+        var explorer = new Lampa.Explorer(object);
         var html = $('<div class="rezka-fav-page"></div>');
         var xhr = null, destroyed = false, initialized = false, self = this;
         this.create = function () {
@@ -1466,7 +1470,11 @@
 
     function rezkaContinueComponent(object) {
         var scroll = new Lampa.Scroll({ mask: true, over: true });
-        // Native Lampa layout: hide the unrelated movie info sidebar.\n        // The explorer becomes full-width via its built-in explorer--fullsize class.\n        object.params = object.params || {};\n        object.params.noinfo = true;\n        var explorer = new Lampa.Explorer(object);
+        // Native Lampa layout: hide the unrelated movie info sidebar.
+        // The explorer becomes full-width via its built-in explorer--fullsize class.
+        object.params = object.params || {};
+        object.params.noinfo = true;
+        var explorer = new Lampa.Explorer(object);
         var html = $('<div class="rezka-fav-page"></div>');
         var destroyed = false, initialized = false, self = this;
         var calls = [];
