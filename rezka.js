@@ -1435,7 +1435,9 @@
         return {
             season: match ? match[1] : '',
             episode: match ? match[2] : '',
-            voice: (text.match(/\(([^()]{2,100})\)\s*$/) || [])[1] || ''
+            // Preserve studio names containing parentheses: "HDRezka Studio (18+)".
+            voice: (text.match(/\d+\s*серия\s*\((.+)\)\s*$/i) ||
+                text.match(/\(([^()]{2,100})\)\s*$/) || [])[1] || ''
         };
     }
 
