@@ -1,6 +1,6 @@
 {
   "name": "lampa-hdrezka-netlify-bridge",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "check": "node --check rezka.js && node --check bridge/server.cjs && node --check netlify/functions/bridge.mjs",
-    "test": "node --test bridge/test.cjs tests/netlify-bridge.test.mjs tests/netlify-login.test.mjs tests/favorites-lifecycle.test.cjs tests/online-lifecycle.test.cjs tests/watch-sync.test.mjs tests/watch-events.test.cjs tests/continue-history.test.cjs tests/shelves.test.cjs tests/navigation-channels.test.cjs"
+    "test": "node --test bridge/test.cjs tests/netlify-bridge.test.mjs tests/netlify-login.test.mjs tests/favorites-lifecycle.test.cjs tests/online-lifecycle.test.cjs tests/watch-sync.test.mjs tests/watch-events.test.cjs tests/continue-history.test.cjs tests/shelves.test.cjs tests/navigation-channels.test.cjs tests/free-quality.test.cjs"
   },
   "dependencies": {
     "@netlify/blobs": "11.1.7"
