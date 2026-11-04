@@ -28,7 +28,7 @@ function harness(withSurs) {
   const storage = {rezka_domain:'https://flymaterez.net/',
     rezka_bridge_url:'https://preview.netlify.app',
     rezka_bridge_token:'b'.repeat(64)};
-  const pushed = [], registered = [];
+  const pushed = [], registered = [], selects = [];
   const win = {appready:false};
   if (withSurs) win.surs_register_shelf = def => {
     registered.push(def);
@@ -39,6 +39,9 @@ function harness(withSurs) {
       set:(name,value)=>{storage[name]=value;}},
     Listener:{follow(){}},
     Activity:{push:p=>pushed.push(p)},
+    Select:{show:config=>selects.push(config)},
+    Controller:{toggle(){}},
+    Api:{search:(_query,ok)=>ok({movie:{results:[{id:898,title:'Периферийные устройства',release_date:'2022-05-01'}]},tv:{results:[]}})},
     Maker:{make:(type,data,modules)=>({
       type, data, modules:modules({only:(...items)=>items})
     })},
@@ -46,7 +49,7 @@ function harness(withSurs) {
   };
   vm.runInNewContext(exposed, {window:win,Lampa,URL,console:{log(){}},setTimeout(){}},
     {timeout:4000});
-  return {hooks:win.__shelfTest,win,registered,pushed,storage};
+  return {hooks:win.__shelfTest,win,registered,pushed,storage,selects};
 }
 const favoriteEntry = {
   title:'Периферийные устройства',year:'2022',
@@ -86,7 +89,7 @@ test('shelf category IDs are discovered by label, not hardcoded IDs',()=>{
   assert.equal(h.hooks.category([],'watchlist'),'');
 });
 
-test('watchlist cards use Lampa Maker and open existing HDRezka player',()=>{
+test('watchlist shelf offers HDRezka, Lampa card and torrent results from one poster',()=>{
   const h=harness(true);
   h.hooks.setCategories([{id:'386',name:'Буду смотреть'}]);
   h.hooks.inject('favorites',(kind,callback)=>callback([favoriteEntry]));
@@ -112,6 +115,19 @@ test('watchlist cards use Lampa Maker and open existing HDRezka player',()=>{
   assert.equal(result.results.filter(c=>c.title==='Все →').length,0);
   assert.equal(typeof result.params.emit.onlyMore,'function');
   card.params.emit.onlyEnter();
+  assert.equal(h.pushed.length,0,'poster click opens choices, not direct playback');
+  assert.equal(h.selects.length,1);
+  const menu=h.selects[0];
+  assert.equal(menu.title,'Периферийные устройства');
+  assert.deepEqual(Array.from(menu.items,x=>x.action),['watch','card','torrents']);
+  menu.onSelect({action:'torrents'});
+  assert.equal(h.pushed.at(-1).component,'torrents');
+  assert.equal(h.pushed.at(-1).from_search,true);
+  assert.equal(h.pushed.at(-1).search,'Периферийные устройства 2022');
+  menu.onSelect({action:'card'});
+  assert.equal(h.pushed.at(-1).component,'full');
+  assert.equal(h.pushed.at(-1).id,898);
+  menu.onSelect({action:'watch'});
   assert.equal(h.pushed.at(-1).component,'rezka_online');
   assert.equal(h.pushed.at(-1).movie.rezka_url,favoriteEntry.url);
   result.params.emit.onlyMore();
@@ -211,4 +227,32 @@ test('native More visibility is disabled for empty HDRezka shelves',()=>{
   h.registered[0].loader(data=>{result=data;});
   assert.equal(result.results.length,0);
   assert.equal(result.total_pages,1);
+});
+
+test('continue and watched shelves preserve direct HDRezka playback',()=>{
+  const h=harness(true);
+  h.hooks.inject('favorites',(_kind,cb)=>cb([favoriteEntry]));
+  h.hooks.inject('continue',cb=>cb([favoriteEntry]));
+  h.hooks.register();
+  [1,2].forEach(index=>{
+    let results;
+    h.registered[index].loader(r=>{results=r;});
+    results.results[0].params.emit.onlyEnter();
+    assert.equal(h.pushed.at(-1).component,'rezka_online');
+  });
+  assert.equal(h.selects.length,0,'only watchlist introduces selection dialog');
+});
+
+test('direct torrent search handles missing release year',()=>{
+  const h=harness(true);
+  const entry={...favoriteEntry,year:''};
+  h.hooks.inject('favorites',(_kind,cb)=>cb([entry]));
+  h.hooks.register();
+  let result;
+  h.registered[0].loader(x=>{result=x;});
+  result.results[0].params.emit.onlyEnter();
+  h.selects[0].onSelect({action:'torrents'});
+  const torrent=h.pushed.at(-1);
+  assert.equal(torrent.component,'torrents');
+  assert.equal(torrent.search,'Периферийные устройства');
 });
