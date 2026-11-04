@@ -14,7 +14,7 @@ function harness(opts = {}) {
     rezka_bridge_token: 'a'.repeat(64),
     rezka_status: 'logged'
   };
-  const controllers = {}, components = {}, settings = {}, calls = [], scrolls = [], explorers = [], alerts = [], selections = [];
+  const controllers = {}, components = {}, settings = {}, calls = [], scrolls = [], explorers = [], alerts = [], selections = [], appended = [];
   let current = null, active = null;
 
   class Element {
@@ -34,12 +34,14 @@ function harness(opts = {}) {
     parseFromString(html) {
       const category = /b-favorites_content__cats_list_link/.test(html);
       const hasFilms = /b-content__inline_item/.test(html);
+      const second = /data-movie="second"/.test(html);
       const film = {
         querySelector(selector) {
           if (selector === '.b-content__inline_item-link a[href]') {
-            return {getAttribute: k => k === 'href' ? '/series/fiction/example-film.html' :
-              k === 'title' ? 'Периферийные устройства' : null,
-              textContent: 'Периферийные устройства'};
+            return {getAttribute: k => k === 'href' ?
+              (second ? '/series/fiction/second-film.html' : '/series/fiction/example-film.html') :
+              k === 'title' ? (second ? 'Второй фильм' : 'Периферийные устройства') : null,
+              textContent: second ? 'Второй фильм' : 'Периферийные устройства'};
           }
           if (selector === '.b-content__inline_item-cover img')
             return opts.noPoster ? null : {getAttribute: k =>
@@ -56,6 +58,10 @@ function harness(opts = {}) {
         },
         querySelectorAll(selector) {
           if (hasFilms && selector === '.b-content__inline_item') return [film];
+          if (selector === '.b-navigation a[href], .b-pagination a[href]' &&
+              /data-next="2"/.test(html)) {
+            return [{getAttribute:()=>'/favorites/7/page/2/'}];
+          }
           if (category && selector === 'a.b-favorites_content__cats_list_link') {
             return [{
               getAttribute: () => '/favorites/7/',
@@ -75,9 +81,15 @@ function harness(opts = {}) {
       this.responseText = opts.response ??
         '<div class="b-favorites_content"><a class="b-favorites_content__cats_list_link" href="/favorites/7/">Мои фильмы</a></div>';
     }
-    open(method, url) { calls.push({ method, url }); }
+    open(method, url) { this.url=url; calls.push({ method, url }); }
     setRequestHeader() {}
-    send() { if (opts.networkError) this.onerror(); else this.onload(); }
+    send() {
+      if (opts.pages && /page%2F2%2F/.test(this.url)) {
+        this.responseText=opts.pages[2];
+        this.status=opts.status2 ?? 200;
+      }
+      if (opts.networkError) this.onerror(); else this.onload();
+    }
     abort() {}
   }
 
@@ -112,7 +124,8 @@ function harness(opts = {}) {
       add(name, callbacks) { controllers[name] = callbacks; },
       toggle() {},
       collectionSet() {},
-      collectionFocus() {}
+      collectionFocus() {},
+      collectionAppend(el) { appended.push(el); }
     },
     Activity: {
       active() { return { activity: active }; },
@@ -131,7 +144,7 @@ function harness(opts = {}) {
     DOMParser: Parser, XMLHttpRequest: XHR, URL, Navigator: {},
     console: { log() {} }, setTimeout() {}
   }, { timeout: 5000 });
-  return { components, settings, scrolls, explorers, calls, alerts, states, selections,
+  return { components, settings, scrolls, explorers, calls, alerts, states, selections, appended,
     open() { settings.rezka_open_favorites.onChange(); },
     openCategory() { Lampa.Activity.push({component:'rezka_favorites',
       rezka_category:'7',rezka_page:1}); },
@@ -223,4 +236,38 @@ test('HDRezka Favorites and Continue use native full-width Lampa Explorer withou
     'Continue must enable built-in Explorer noinfo flag');
   assert.equal(app.explorers.at(-1).object.params.client_setting,'preserve',
     'other Explorer params must not be lost');
+});
+
+test('favorites automatically append page two inside same grid when scrolling to end',()=>{
+  const app=harness({
+    response:'<div class="b-favorites_content"><div class="b-content__inline_item"></div><span data-next="2"></span></div>',
+    pages:{2:'<div class="b-favorites_content"><div class="b-content__inline_item" data-movie="second"></div></div>'}
+  });
+  app.openCategory();
+  const scroll=app.scrolls[0];
+  const grid=scroll.added[0].children[0];
+  assert.equal(grid.children.length,1);
+  assert.equal(app.calls.length,1);
+  assert.equal(typeof scroll.onEnd,'function');
+  scroll.onEnd();
+  assert.equal(app.calls.length,2,'scrolling requests second page');
+  assert.match(app.calls[1].url,/favorites%2F7%2Fpage%2F2%2F/);
+  assert.equal(grid.children.length,2,'new cards appended into the original grid');
+  assert.equal(grid.children[0].children[1].value,'Периферийные устройства');
+  assert.equal(grid.children[1].children[1].value,'Второй фильм');
+  assert.equal(app.appended.length,1,'additional card is registered for remote focus');
+  assert.equal(app.scrolls.length,1,'activity never navigates to a new page');
+  scroll.onEnd();
+  assert.equal(app.calls.length,2,'last server page stops further requests');
+  assert.ok(!app.alerts.some(x=>/Следующая страница/.test(x)));
+});
+test('favorites do not load page two before reaching the scroll end',()=>{
+  const app=harness({
+    response:'<div class="b-favorites_content"><div class="b-content__inline_item"></div><span data-next="2"></span></div>',
+    pages:{2:'<div class="b-favorites_content"><div class="b-content__inline_item" data-movie="second"></div></div>'}
+  });
+  app.openCategory();
+  app.startAgain();
+  assert.equal(app.calls.length,1);
+  assert.equal(app.scrolls[0].added[0].children.length,1);
 });
