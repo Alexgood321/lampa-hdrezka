@@ -21,7 +21,7 @@ assert.ok(source.includes('    bootstrap();\n})();'),
   'test instrumentation must replace exactly the bootstrap call');
 const code = source.replace('    bootstrap();\n})();', hook);
 
-function harness({hasChannels=true, staticChannels=false, hidden=[], initialized=false}={}) {
+function harness({hasChannels=true, staticChannels=false, caption='', channelId='tv_channels', hidden=[], initialized=false}={}) {
   const storage = {
     menu_hide: hidden.slice(),
     menu_sort: ['Главная','История','Избранное HDRezka','Досмотреть HDRezka'],
@@ -56,7 +56,12 @@ function harness({hasChannels=true, staticChannels=false, hidden=[], initialized
     },
     Template: {get(name) {
       if(name!=='settings_main') return null;
-      return {find(q) {return {length:staticChannels && q==='[data-component="channels"]' ? 1 : 0};}};
+      return {find(q) {
+        if(q==='.settings-folder[data-component]') return {
+          each(cb) {if (caption) cb.call({isFolder:true});}
+        };
+        return {length:staticChannels && q==='[data-component="channels"]' ? 1 : 0};
+      }};
     }},
     Activity: {push(value) {pushed.push(value);}},
     Noty: {show(value) {notices.push(value);}}
@@ -64,6 +69,10 @@ function harness({hasChannels=true, staticChannels=false, hidden=[], initialized
   const win={};
   vm.runInNewContext(code,{
     window:win,Lampa,URL,Date,
+    $: elem=>({
+      find(q) {return {text:()=>q==='.settings-folder__name' ? caption : ''};},
+      attr(q) {return q==='data-component' ? channelId : null;}
+    }),
     console:{log(){}},setTimeout(){},
   },{timeout:4000});
   return {nav:win.__navTest,storage,menus,params,pushed,notices,Lampa};
@@ -134,6 +143,13 @@ test('static Channels folder in newer Lampa builds is recognized',()=>{
   h.nav.register();
   h.nav.settings();
   assert.ok(h.params.every(p=>p.component==='channels'));
+});
+
+test('Channels folder with alternate internal ID is detected by visible label',()=>{
+  const h=harness({hasChannels:false,caption:' Каналы ',channelId:'custom_channels'});
+  h.nav.register();
+  h.nav.settings();
+  assert.ok(h.params.every(p=>p.component==='custom_channels'));
 });
 
 test('sidebar links open actual HDRezka destinations and account-specific collections',()=>{
