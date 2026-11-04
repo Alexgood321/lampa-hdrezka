@@ -1825,13 +1825,15 @@
             /just a moment|checking your browser|attention required/i.test(doc.title || '')) {
             out.error = 'Сайт ограничил доступ к новинкам'; return out;
         }
-        if (doc.querySelector('form[action*="login"] input[type="password"], form[action*="login"] input[name="login_password"]') ||
-            /<title[^>]*>\s*(?:Вход|Login|Sign in)\s*<\/title>/i.test(String(html || ''))) {
-            out.error = 'Главная HDRezka показывает форму входа'; return out;
-        }
         var cards = doc.querySelectorAll('.b-newest_slider__list .b-content__inline_item');
         if (!cards.length) {
-            out.error = 'На главной HDRezka не найден слайдер новинок'; return out;
+            // A hidden sign-in modal can exist on a valid homepage. Treat it
+            // as a login gateway only if the real newest slider is missing.
+            var needsLogin = doc.querySelector('form[action*="login"] input[type="password"], form[action*="login"] input[name="login_password"]') ||
+                /<title[^>]*>\s*(?:Вход|Login|Sign in)\s*<\/title>/i.test(String(html || ''));
+            out.error = needsLogin ? 'Главная HDRezka показывает форму входа' :
+                'На главной HDRezka не найден слайдер новинок';
+            return out;
         }
         var used = {};
         for (var i = 0; i < cards.length; i++) {
