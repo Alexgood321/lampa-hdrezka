@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.7.3',
+        version: '1.7.4',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -205,11 +205,41 @@
             if (!m) return;
             var label = m[1].trim();
             var urls = m[2].split(' or ');
-            // last URL is usually the highest-quality / mp4 fallback
+            // Alternatives after "or" are mirrors of the same resolution.
             var file = urls[urls.length - 1].trim();
             result.push({ label: label, file: file });
         });
         return result;
+    }
+
+    /**
+     * Free HDRezka streams only. Ultra / Premium variants are not playable
+     * without a subscription, even when they appear in an API playlist.
+     * We prefer the highest numeric resolution rather than the last URL.
+     * The original quality labels remain available to Lampa's player menu.
+     */
+    function rezkaChooseFreeQuality(items) {
+        var qualities = {};
+        var best = null;
+        var highest = -1;
+        (items || []).forEach(function (item) {
+            var label = String(item && item.label || '').trim();
+            var file = String(item && item.file || '').trim();
+            if (!label || !/^https?:\/\//i.test(file)) return;
+
+            // Do not accidentally expose paid 1080p Ultra or 4K streams.
+            if (/ultra|premium|премиум|подписк|\b(?:vip|uhd|[248]k)\b/i.test(label)) return;
+            var match = label.match(/(?:^|[^0-9])(\d{3,4})\s*p\b/i);
+            var resolution = match ? Number(match[1]) : 0;
+            if (resolution > 1080) return;
+
+            qualities[label] = file;
+            if (resolution > highest) {
+                highest = resolution;
+                best = file;
+            }
+        });
+        return { file: best, quality: qualities };
     }
 
     /**
@@ -532,16 +562,15 @@
                     var decoded = decodeTrash(json.url);
                     var items = parsePlaylist(decoded);
                     if (!items.length) { err && err('Пустой плейлист'); return; }
-                    var qualities = {};
-                    items.forEach(function (it) { qualities[it.label] = it.file; });
-                    if (json.premium_content) {
-                        // premium URLs are dummies for free accounts
-                        // but we still try to play in case the user has premium
+                    var selected = rezkaChooseFreeQuality(items);
+                    if (!selected.file) {
+                        err && err('Нет доступного бесплатного качества HDRezka (Ultra/Premium недоступны)');
+                        return;
                     }
                     cb({
                         title: '',
-                        file: items[items.length - 1].file, // best (last)
-                        quality: qualities,
+                        file: selected.file,
+                        quality: selected.quality,
                         subtitles: parseSubtitles(json.subtitle)
                     });
                 } catch (e) { err && err('Не удалось разобрать ответ'); }
