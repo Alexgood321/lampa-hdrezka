@@ -30,7 +30,7 @@ const hook = [
 ].join('\n');
 const exposed = original.replace('    bootstrap();\n})();', hook);
 
-function harness(withSurs) {
+function harness(withSurs, DOMParserCtor) {
   const storage = {rezka_domain:'https://flymaterez.net/',
     rezka_bridge_url:'https://preview.netlify.app',
     rezka_bridge_token:'b'.repeat(64)};
@@ -53,7 +53,7 @@ function harness(withSurs) {
     })},
     Background:{change(){}}
   };
-  vm.runInNewContext(exposed, {window:win,Lampa,URL,console:{log(){}},setTimeout(){}},
+  vm.runInNewContext(exposed, {window:win,Lampa,URL,DOMParser:DOMParserCtor,console:{log(){}},setTimeout(){}},
     {timeout:4000});
   return {hooks:win.__shelfTest,win,registered,pushed,storage,selects};
 }
@@ -304,4 +304,62 @@ test('newest empty source is not populated with unrelated catalog items',()=>{
   h.registered[3].loader(x=>{data=x;});
   assert.deepEqual(Array.from(data.results),[]);
   assert.equal(data.total_pages,1);
+});
+
+test('newest parser targets the original homepage slider and preserves ordered metadata',()=>{
+  const selectors=[];
+  function movie({url,title,year,poster,badge}) {
+    const link={
+      getAttribute:k=>k==='href'?url:k==='title'?title:'',
+      textContent:title
+    };
+    return {querySelector:sel=>{
+      if (sel==='.b-content__inline_item-link a[href]') return link;
+      if (sel==='.b-content__inline_item-cover img')
+        return {getAttribute:k=>k==='data-src'?poster:''};
+      if (sel==='.b-content__inline_item-link div') return {textContent:year+', США'};
+      if (sel.includes('.b-newest_series')) return badge ? {textContent:badge}:null;
+      return null;
+    }};
+  }
+  class FakeParser {
+    parseFromString() {
+      return {
+        title:'',
+        querySelector:()=>null,
+        querySelectorAll:sel=>{
+          selectors.push(sel);
+          return [
+            movie({url:'/films/drama/101-one.html',title:'Обитель зла',
+              year:'2026',poster:'https://cdn.example.com/one.jpg'}),
+            movie({url:'/series/drama/102-two.html',title:'Ноктюрн',
+              year:'2026',poster:'https://cdn.example.com/two.jpg',
+              badge:'1 сезон 2 серия'}),
+            movie({url:'https://other.example/series/103-evil.html',
+              title:'Другой домен',year:'2026',poster:''})
+          ];
+        }
+      };
+    }
+  }
+  const h=harness(false,FakeParser);
+  const out=h.hooks.parseNewest('<div class="b-newest_slider__list"></div>');
+  assert.equal(out.error,'');
+  assert.deepEqual(Array.from(out.items,x=>x.title),['Обитель зла','Ноктюрн']);
+  assert.equal(out.items[0].year,'2026');
+  assert.equal(out.items[1].subtitle,'1 сезон 2 серия');
+  assert.equal(out.items[0].poster,'https://cdn.example.com/one.jpg');
+  assert.deepEqual(selectors,['.b-newest_slider__list .b-content__inline_item']);
+});
+
+test('newest parser rejects pages without the slider instead of using unrelated films',()=>{
+  class NoSlider {
+    parseFromString() {
+      return {title:'',querySelector:()=>null,querySelectorAll:()=>[]};
+    }
+  }
+  const h=harness(false,NoSlider);
+  const out=h.hooks.parseNewest('<div class="b-content__inline_item"></div>');
+  assert.equal(out.items.length,0);
+  assert.match(out.error,/не найден слайдер/);
 });
