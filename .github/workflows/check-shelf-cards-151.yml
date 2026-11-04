@@ -1,0 +1,23 @@
+name: Verify HDRezka shelf cards 1.5.1
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  pinned-cdn:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check public pinned version 1.5.1
+        run: |
+          set -eu
+          curl -fsS -D /tmp/headers -m 25 \
+            -H "Origin: https://lampa.mx" \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@ceadd676f52226df3ac53f8a0aa51cd39e6d22ee/rezka.js" \
+            -o /tmp/rezka.js
+          grep -q "version: '1.5.1'" /tmp/rezka.js
+          grep -q "createInstance: function (item)" /tmp/rezka.js
+          grep -q "mod.only('Card', 'Release', 'Callback')" /tmp/rezka.js
+          grep -qi '^access-control-allow-origin: \*' /tmp/headers
+          node --check /tmp/rezka.js
+          echo "CDN verified: HDRezka v1.5.1"
