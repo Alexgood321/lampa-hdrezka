@@ -18,3 +18,5 @@ jobs:
           grep -qi '^access-control-allow-origin: \*' /tmp/headers
           node --check /tmp/rezka.js
           echo "Pinned HDRezka 1.7.0 exists with CORS"
+
+# Re-verify newest shelf integration after fixing the test harness.
