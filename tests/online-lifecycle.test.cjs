@@ -49,10 +49,14 @@ function harness(config = {}) {
       this.responseText = config.response ??
         '<script>initCDNMoviesEvents(123, 456, 0, 0)</script>';
     }
-    open(method, url) { calls.push({method,url}); }
+    open(method, url) { this.url=url; calls.push({method,url}); }
     setRequestHeader() {}
     send(body) {
       if (calls.length) calls[calls.length - 1].body=body;
+      if (this.url.includes('/v1/watch/progress')) {
+        this.responseText = JSON.stringify({ok:true,items:config.progressItems||[]});
+        this.status=200;
+      }
       if (config.failNetwork) this.onerror(); else this.onload();
     }
     abort() {}
@@ -154,7 +158,7 @@ test('watch activity initializes itself once and renders an episode item', ()=>{
     component:'rezka_online',
     movie:{title:'Периферийные устройства',rezka_url:'https://flymaterez.net/series/fantasy/the-peripheral/'}
   });
-  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls.filter(c=>c.url.includes('/v1/proxy')).length,1);
   assert.equal(h.calls[0].method, 'GET');
   assert.match(h.calls[0].url, /^https:\/\/bridge\.example\.net\/v1\/proxy\?/);
   assert.ok(h.scrolls[0].elements.length>0);
@@ -172,7 +176,7 @@ test('watch activity reports a parse failure, not a blank screen', ()=>{
     component:'rezka_online',
     movie:{title:'Тест',rezka_url:'https://flymaterez.net/series/fantasy/the-peripheral/'}
   });
-  assert.equal(h.calls.length,1);
+  assert.equal(h.calls.filter(c=>c.url.includes('/v1/proxy')).length,1);
   assert.ok(h.errors.some(x=>/Не удалось определить ID плеера/.test(x)));
   assert.ok(h.scrolls[0].elements.length>0);
 });
@@ -210,7 +214,7 @@ test('series player accepts modern initializer with numeric flag 2 and class var
     component:'rezka_online',
     movie:{title:'Периферийные устройства',rezka_url:'https://flymaterez.net/series/fiction/51560-periferiynye-ustroystva-2022.html'}
   });
-  assert.equal(h.calls.length,1);
+  assert.equal(h.calls.filter(c=>c.url.includes('/v1/proxy')).length,1);
   assert.equal(h.errors.length,0,'modern series page must not trigger parse error');
   const page=h.scrolls[0].elements[0];
   assert.equal(page.children.length,1,'one episode is rendered');
