@@ -31,6 +31,8 @@ function targetURL(value) {
 function allowedPath(pathname, method) {
     if (method === 'POST') return /^\/ajax\/(?:get_cdn_series|login)\/?$/.test(pathname);
     if (method !== 'GET') return false;
+    // Allow only the mirror homepage needed for the newest slider.
+    if (pathname === '/') return true;
     if (/^\/favorites\/(?:\d+\/)?(?:page\/\d+\/)?$/.test(pathname)) return true;
     if (pathname === '/engine/ajax/search.php') return true;
     // Film/series detail pages; block arbitrary upstream endpoints.
