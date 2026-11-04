@@ -1,0 +1,23 @@
+name: Verify HDRezka watchlist choices 1.6.1
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check pinned 1.6.1 JavaScript
+        run: |
+          set -eu
+          curl -fsS --max-time 25 -D /tmp/headers \
+            -H "Origin: https://lampa.mx" \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@52d0b7e4ea2c9751af70f098a1ad052afc83357a/rezka.js" \
+            -o /tmp/rezka.js
+          grep -q "version: '1.6.1'" /tmp/rezka.js
+          grep -q "function rezkaShelfWatchlistMenu" /tmp/rezka.js
+          grep -q "component: 'torrents'" /tmp/rezka.js
+          grep -qi '^access-control-allow-origin: \*' /tmp/headers
+          node --check /tmp/rezka.js
+          echo "Pinned 1.6.1 watchlist picker verified"
