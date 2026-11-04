@@ -1979,9 +1979,110 @@
         });
     }
 
+    function rezkaNewestOpen() {
+        Lampa.Activity.push({
+            url: '', title: 'Новинки HDRezka', component: 'rezka_newest', page: 1
+        });
+    }
+
+    function rezkaNewestComponent(object) {
+        var scroll = new Lampa.Scroll({ mask: true, over: true });
+        object.params = object.params || {};
+        object.params.noinfo = true;
+        var explorer = new Lampa.Explorer(object);
+        var html = $('<div class="rezka-fav-page"></div>');
+        var initialized = false, destroyed = false, self = this;
+
+        this.create = function () {
+            scroll.minus();
+            explorer.appendFiles(scroll.render());
+            return this.render();
+        };
+        this.render = function () { return explorer.render(); };
+        this.start = function () {
+            if (Lampa.Activity.active().activity !== this.activity) return;
+            if (!initialized) {
+                initialized = true;
+                try { this.initialize(); }
+                catch (e) { showError('Ошибка открытия новинок: ' + (e.message || e)); }
+            }
+            Lampa.Controller.add('content', {
+                toggle: function () {
+                    Lampa.Controller.collectionSet(scroll.render(), explorer.render());
+                    Lampa.Controller.collectionFocus(false, scroll.render());
+                },
+                up: function () {
+                    if (Navigator.canmove('up')) Navigator.move('up');
+                    else Lampa.Controller.toggle('head');
+                },
+                down: function () { Navigator.move('down'); },
+                left: function () { Lampa.Controller.toggle('menu'); },
+                right: function () { Navigator.move('right'); },
+                back: this.back
+            });
+            Lampa.Controller.toggle('content');
+        };
+        this.pause = function () {};
+        this.stop = function () {};
+        this.back = function () { Lampa.Activity.backward(); };
+        this.destroy = function () {
+            destroyed = true;
+            scroll.destroy();
+            explorer.destroy();
+            html.remove();
+        };
+        function finish() {
+            if (destroyed) return;
+            scroll.append(html);
+            self.activity.loader(false);
+            self.activity.toggle();
+        }
+        function showError(message) {
+            $('<div class="rezka-fav-msg"></div>').text(message).appendTo(html);
+            finish();
+        }
+        this.initialize = function () {
+            self.activity.loader(true);
+            var spec = rezkaShelfSpecs.filter(function (s) { return s.kind === 'newest'; })[0];
+            rezkaShelfLoad(spec, function () {
+                if (destroyed) return;
+                var cache = rezkaShelfCache[getDomain() + '|' + getBridge() + '|' + spec.id];
+                var items = cache ? cache.items : [];
+                if (!items.length) {
+                    showError(rezkaNewestError || 'На главной пока нет новинок HDRezka');
+                    return;
+                }
+                var grid = $('<div class="rezka-fav-grid"></div>').appendTo(html);
+                items.slice(0, 50).forEach(function (entry) {
+                    if (!entry.title || !rezkaSiteURL(entry.url)) return;
+                    var card = $('<div class="card selector layer--visible layer--render rezka-fav-card"></div>');
+                    var view = $('<div class="card__view"></div>').appendTo(card);
+                    if (entry.poster) {
+                        $('<img class="card__img" alt="">').attr('src', entry.poster).appendTo(view);
+                    } else {
+                        $('<div class="rezka-fav-no-poster"></div>')
+                            .text('Нет постера').appendTo(view);
+                    }
+                    $('<div class="card__title"></div>').text(entry.title).appendTo(card);
+                    if (entry.year) $('<div class="card__age"></div>').text(entry.year).appendTo(card);
+                    if (entry.subtitle) $('<div class="card__age"></div>')
+                        .text(entry.subtitle).appendTo(card);
+                    card.on('hover:enter', function () {
+                        rezkaShelfWatchlistMenu(entry, {
+                            title: entry.title, year: entry.year,
+                            rezka_url: entry.url, rezka_poster: entry.poster
+                        });
+                    }).appendTo(grid);
+                });
+                finish();
+            });
+        };
+    }
+
     function rezkaFavoritesRegister() {
         Lampa.Component.add('rezka_favorites', rezkaFavoritesComponent);
         Lampa.Component.add('rezka_continue', rezkaContinueComponent);
+        Lampa.Component.add('rezka_newest', rezkaNewestComponent);
         if (!document.getElementById('rezka-fav-style')) {
             var style = document.createElement('style');
             style.id = 'rezka-fav-style';
