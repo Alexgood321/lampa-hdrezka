@@ -55,6 +55,7 @@ function allowedPath(path, method) {
   if (method === "POST") return /^\/ajax\/(?:get_cdn_series|login)\/?$/.test(path);
   if (method !== "GET") return false;
   if (/^\/favorites\/(?:\d+\/)?(?:page\/\d+\/)?$/.test(path)) return true;
+  if (/^\/continue\/(?:page\/\d+\/)?$/.test(path)) return true;
   if (path === "/engine/ajax/search.php") return true;
   return /^\/(?:films|series|cartoons|animation|anime|documentary|shows|tv-series)\/[a-z0-9_\u0400-\u04ff/%.-]+\/?$/i.test(path);
 }
@@ -181,6 +182,77 @@ async function checkFavorites(jar, base) {
     undefined, jar, base);
   const html = await response.text();
   return { ...favoritesHTML(html, resolved, base), http: response.status };
+}
+
+
+// Account-wide viewing state for Lampa. Stored encrypted and separate from
+// HDRezka cookies, so Lampa devices share it without changing website history.
+function watchStore() {
+  return getStore({ name: "rezka-private-watch", consistency: "strong" });
+}
+
+async function readWatch(store) {
+  const content = unseal(await store.get("primary", { type: "json", consistency: "strong" }));
+  return content && content.entries && typeof content.entries === "object" &&
+    !Array.isArray(content.entries) ? content.entries : {};
+}
+
+function normalizedWatch(payload, base) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Invalid viewing data");
+  }
+  const url = safeURL(String(payload.url || ""), base);
+  if (!allowedPath(url.pathname, "GET")) throw new Error("Invalid media URL");
+  url.hash = "";
+  url.search = "";
+  const string = (value, max) => String(value || "").trim().slice(0, max);
+  const number = (value, max) => {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n) || n < 0 || n > max) throw new Error("Invalid playback position");
+    return Math.round(n);
+  };
+  const id = value => {
+    const v = string(value, 12);
+    if (v && !/^\d{1,12}$/.test(v)) throw new Error("Invalid episode/translator ID");
+    return v;
+  };
+  const status = string(payload.status, 20);
+  if (!["started", "progress", "completed"].includes(status)) {
+    throw new Error("Invalid playback status");
+  }
+  const title = string(payload.title, 180);
+  if (!title) throw new Error("Missing media title");
+  const season = id(payload.season), episode = id(payload.episode);
+  const translator = id(payload.translator);
+  const position = number(payload.position, 24 * 3600);
+  const duration = number(payload.duration, 24 * 3600);
+  const poster = string(payload.poster, 512);
+  return {
+    url: url.href, title, poster: /^https:\/\//i.test(poster) ? poster : "",
+    season, episode, translator, voice: string(payload.voice, 100),
+    position, duration, status,
+  };
+}
+
+async function writeWatch(payload, base) {
+  const item = normalizedWatch(payload, base);
+  const store = watchStore();
+  const entries = await readWatch(store);
+  const key = new URL(item.url).pathname;
+  const previous = entries[key] || {};
+  const episodeKey = item.season + ":" + item.episode;
+  const seen = previous.seen && typeof previous.seen === "object" &&
+    !Array.isArray(previous.seen) ? { ...previous.seen } : {};
+  if (item.status === "completed") seen[episodeKey] = Date.now();
+  entries[key] = {
+    ...item, seen, updatedAt: Date.now(),
+  };
+  const sorted = Object.keys(entries).sort((a, b) =>
+    (entries[b].updatedAt || 0) - (entries[a].updatedAt || 0));
+  const clipped = {};
+  sorted.slice(0, 250).forEach(k => { clipped[k] = entries[k]; });
+  await store.setJSON("primary", seal({ entries: clipped }));
+  return { ok: true, saved: true, updatedAt: entries[key].updatedAt };
 }
 
 function attribute(html, name) {
@@ -322,6 +394,22 @@ export default async function handler(req) {
       return answer({ ok: true, authenticated: true });
     }
 
+
+    if (action === "/v1/watch/progress" && req.method === "GET") {
+      const entries = await readWatch(watchStore());
+      return answer({ ok: true, items: Object.values(entries).sort((a,b)=>
+        (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0,250) });
+    }
+    if (action === "/v1/watch/progress" && req.method === "POST") {
+      let payload;
+      try { payload = JSON.parse(await boundedText(req, 4096)); }
+      catch { return answer({ error: "Invalid progress JSON" }, 400); }
+      try { return answer(await writeWatch(payload, base)); }
+      catch (error) {
+        return answer({ error: String(error.message || "Invalid progress").slice(0,120) }, 400);
+      }
+    }
+
     if (action === "/v1/proxy" && (req.method === "GET" || req.method === "POST")) {
       const target = new URL(req.url).searchParams.get("url");
       if (!target) return answer({ error: "Missing url" }, 400);
@@ -354,4 +442,4 @@ export default async function handler(req) {
 }
 
 // Internal test helpers. Not HTTP routes; credentials are never exported.
-export const __test = { loginMessage, loginResponse, loginToMirror, gatewayForm };
+export const __test = { loginMessage, loginResponse, loginToMirror, gatewayForm, normalizedWatch, allowedPath };
