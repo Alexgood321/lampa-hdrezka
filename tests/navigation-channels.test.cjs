@@ -78,16 +78,16 @@ function harness({hasChannels=true, staticChannels=false, caption='', channelId=
   return {nav:win.__navTest,storage,menus,params,pushed,notices,Lampa};
 }
 
-test('five menu links register once, preserving old names and enabling only old two',()=>{
+test('five menu links register once, migrating old labels and enabling only the original two',()=>{
   const h=harness();
   h.nav.register();
   assert.deepEqual(h.menus.map(i=>i.title),[
-    'Избранное HDRezka','Буду смотреть HDRezka',
-    'Просмотрено HDRezka','Досмотреть HDRezka','Новинки HDRezka']);
+    'HD: Избранное','HD: В планах',
+    'HD: Просмотрено','HD: Досмотреть','HD: Новинки']);
   assert.deepEqual(h.menus.map(i=>i.hidden),[false,true,true,false,true]);
   assert.equal(h.storage.hdrezka_nav_defaults_v1,true);
-  assert.deepEqual(h.storage.menu_sort,
-    ['Главная','История','Избранное HDRezka','Досмотреть HDRezka']);
+  assert.deepEqual(Array.from(h.storage.menu_sort),
+    ['Главная','История','HD: Избранное','HD: Досмотреть']);
   h.nav.register();
   assert.equal(h.menus.length,5);
 });
@@ -104,11 +104,11 @@ test('Channels settings exposes five HDRezka toggles and controls sidebar',()=>{
     'hdrezka_nav_continue','hdrezka_nav_newest']);
   assert.equal(h.storage.hdrezka_nav_watchlist,false);
   toggles[1].onChange('true');
-  assert.equal(h.storage.menu_hide.includes('Буду смотреть HDRezka'),false);
+  assert.equal(h.storage.menu_hide.includes('HD: В планах'),false);
   assert.equal(h.menus[1].hidden,false);
   assert.equal(h.storage.hdrezka_nav_watchlist,true);
   toggles[3].onChange('false');
-  assert.equal(h.storage.menu_hide.includes('Досмотреть HDRezka'),true);
+  assert.equal(h.storage.menu_hide.includes('HD: Досмотреть'),true);
   assert.equal(h.menus[3].hidden,true);
 });
 
@@ -116,7 +116,7 @@ test('native sidebar editor writes are mirrored to Channels switches',()=>{
   const h=harness();
   h.nav.register();
   h.nav.settings();
-  h.Lampa.Storage.set('menu_hide',['Избранное HDRezka','Просмотрено HDRezka']);
+  h.Lampa.Storage.set('menu_hide',['HD: Избранное','HD: Просмотрено']);
   assert.equal(h.storage.hdrezka_nav_favorites,false);
   assert.equal(h.storage.hdrezka_nav_continue,true);
   assert.equal(h.storage.hdrezka_nav_watched,false);
@@ -126,9 +126,45 @@ test('native sidebar editor writes are mirrored to Channels switches',()=>{
 test('user-hidden old buttons survive plugin updates, no forced reset',()=>{
   const h=harness({hidden:['Досмотреть HDRezka'],initialized:true});
   h.nav.register();
-  assert.equal(h.menus.find(x=>x.title==='Досмотреть HDRezka').hidden,true);
-  assert.equal(h.menus.find(x=>x.title==='Буду смотреть HDRezka').hidden,false);
-  assert.deepEqual(h.storage.menu_hide,['Досмотреть HDRezka']);
+  assert.equal(h.menus.find(x=>x.title==='HD: Досмотреть').hidden,true);
+  assert.equal(h.menus.find(x=>x.title==='HD: В планах').hidden,false);
+  assert.deepEqual(Array.from(h.storage.menu_hide),['HD: Досмотреть']);
+});
+
+
+test('migration keeps user sidebar order, keeps unrelated items and removes duplicates',()=>{
+  const h=harness({
+    hidden:['Буду смотреть HDRezka','HD: В планах','Просмотрено HDRezka'],
+    initialized:true
+  });
+  h.storage.menu_sort = ['История','Новинки HDRezka','Избранное HDRezka',
+    'HD: Избранное','Настройки','Досмотреть HDRezka'];
+  h.nav.register();
+  assert.deepEqual(Array.from(h.storage.menu_hide),['HD: В планах','HD: Просмотрено']);
+  assert.deepEqual(Array.from(h.storage.menu_sort),[
+    'История','HD: Новинки','HD: Избранное','Настройки','HD: Досмотреть'
+  ]);
+  assert.deepEqual(h.menus.map(i=>i.hidden),[false,true,true,false,false]);
+  assert.equal(h.menus.length,5);
+  assert.deepEqual(h.menus.map(i=>i.title).every(n=>!n.includes('HDRezka')),true);
+});
+
+test('Channel settings keep full descriptive HDRezka names',()=>{
+  const h=harness();
+  h.nav.register();
+  h.nav.settings();
+  const names=h.params.filter(x=>x.param.type==='trigger').map(x=>x.field.name);
+  assert.deepEqual(names,[
+    'HDRezka: Избранное','HDRezka: Буду смотреть','HDRezka: Просмотрено',
+    'HDRezka: Досмотреть','HDRezka: Новинки'
+  ]);
+});
+
+test('sidebar layout rule preserves native Lampa font and prevents wrapping',()=>{
+  assert.match(source,/\.menu \.menu__item\.rezka-nav-item \.menu__text/);
+  assert.match(source,/white-space:nowrap/);
+  assert.match(source,/text-overflow:ellipsis/);
+  assert.doesNotMatch(source,/\.menu \.menu__item\.rezka-nav-item \.menu__text[^;]*font-size/);
 });
 
 test('unsupported Channels settings falls back to normal HDRezka settings',()=>{

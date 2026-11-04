@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.7.1',
+        version: '1.7.2',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -2111,23 +2111,57 @@
     // Channel controls mirror the editor's menu_hide state; do not create
     // a second, conflicting visibility source.
     var rezkaNavItems = [
-        { key: 'favorites', title: 'Избранное HDRezka', defaultShow: true,
+        { key: 'favorites', title: 'HD: Избранное', legacyTitle: 'Избранное HDRezka', settingsTitle: 'Избранное', defaultShow: true,
           open: function () { rezkaFavoritesOpen('', 1); },
           icon: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>' },
-        { key: 'watchlist', title: 'Буду смотреть HDRezka', defaultShow: false,
+        { key: 'watchlist', title: 'HD: В планах', legacyTitle: 'Буду смотреть HDRezka', settingsTitle: 'Буду смотреть', defaultShow: false,
           open: function () { rezkaNavOpenCollection('watchlist'); },
           icon: '<path d="M3 5h18v14H3zM8 2v6M16 2v6"/>' },
-        { key: 'watched', title: 'Просмотрено HDRezka', defaultShow: false,
+        { key: 'watched', title: 'HD: Просмотрено', legacyTitle: 'Просмотрено HDRezka', settingsTitle: 'Просмотрено', defaultShow: false,
           open: function () { rezkaNavOpenCollection('watched'); },
           icon: '<path d="M4 12l5 5L20 6"/><path d="M3 3h18v18H3z"/>' },
-        { key: 'continue', title: 'Досмотреть HDRezka', defaultShow: true,
+        { key: 'continue', title: 'HD: Досмотреть', legacyTitle: 'Досмотреть HDRezka', settingsTitle: 'Досмотреть', defaultShow: true,
           open: rezkaContinueOpen,
           icon: '<path d="M3 12h8l-4-4m4 4-4 4"/><path d="M21 12a9 9 0 1 1-9-9"/>' },
-        { key: 'newest', title: 'Новинки HDRezka', defaultShow: false,
+        { key: 'newest', title: 'HD: Новинки', legacyTitle: 'Новинки HDRezka', settingsTitle: 'Новинки', defaultShow: false,
           open: rezkaNewestOpen,
           icon: '<path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>' }
     ];
     var rezkaNavButtons = {};
+
+    // Lampa stores sidebar visibility and order by the displayed text,
+    // not by a stable button ID. Migrate both lists before adding buttons.
+    function rezkaNavMigrateSavedTitles() {
+        ['menu_hide', 'menu_sort'].forEach(function (key) {
+            var saved = Lampa.Storage.get(key, '[]');
+            if (!Array.isArray(saved) || !saved.length) return;
+            var changed = false;
+            var updated = [];
+            saved.forEach(function (oldName) {
+                var name = oldName;
+                rezkaNavItems.forEach(function (item) {
+                    if (oldName === item.legacyTitle) name = item.title;
+                });
+                if (name !== oldName || updated.indexOf(name) !== -1) changed = true;
+                if (updated.indexOf(name) === -1) updated.push(name);
+            });
+            if (changed) Lampa.Storage.set(key, updated);
+        });
+    }
+
+    // Keep native Lampa typography; only prevent multiline collisions
+    // in the narrow mobile sidebar, allowing ellipsis as a last resort.
+    function rezkaNavStyle() {
+        if (typeof document === 'undefined' || !document.head ||
+            document.getElementById('rezka-nav-style')) return;
+        var style = document.createElement('style');
+        style.id = 'rezka-nav-style';
+        style.textContent =
+            '.menu .menu__item.rezka-nav-item .menu__text{' +
+            'min-width:0;flex:1 1 auto;white-space:nowrap;' +
+            'overflow:hidden;text-overflow:ellipsis;}';
+        document.head.appendChild(style);
+    }
 
     function rezkaNavHidden() {
         var list = Lampa.Storage.get('menu_hide', '[]');
@@ -2170,6 +2204,8 @@
 
     function rezkaNavRegister() {
         if (!Lampa.Menu || !Lampa.Menu.addButton) return;
+        rezkaNavMigrateSavedTitles();
+        rezkaNavStyle();
         var hidden = rezkaNavHidden();
         // Existing menu editor choices are not overwritten by upgrades.
         if (!Lampa.Storage.get('hdrezka_nav_defaults_v1', false)) {
@@ -2187,6 +2223,7 @@
                     'fill="none" stroke="currentColor" stroke-width="2">' +
                     item.icon + '</svg>';
                 var button = Lampa.Menu.addButton(icon, item.title, item.open);
+                if (button && button.addClass) button.addClass('rezka-nav-item');
                 rezkaNavButtons[item.key] = button || null;
                 if (button && button.toggleClass)
                     button.toggleClass('hidden', rezkaNavHidden().indexOf(item.title) !== -1);
@@ -2236,7 +2273,7 @@
             Lampa.SettingsApi.addParam({
                 component: target,
                 param: { name: field, type: 'trigger', default: item.defaultShow },
-                field: { name: 'HDRezka: ' + item.title.replace(' HDRezka', ''),
+                field: { name: 'HDRezka: ' + item.settingsTitle,
                     description: 'Показывать этот раздел в боковом меню Lampa' },
                 onChange: function (value) {
                     rezkaNavSetVisible(item, value === true || value === 'true');
