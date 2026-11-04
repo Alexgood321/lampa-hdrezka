@@ -14,16 +14,16 @@ function harness(opts = {}) {
     rezka_bridge_token: 'a'.repeat(64),
     rezka_status: 'logged'
   };
-  const controllers = {}, components = {}, settings = {}, calls = [], scrolls = [], alerts = [];
+  const controllers = {}, components = {}, settings = {}, calls = [], scrolls = [], alerts = [], selections = [];
   let current = null, active = null;
 
   class Element {
     constructor(markup = '') {
-      this.markup = markup; this.children = []; this.events = {}; this.value = '';
+      this.markup = markup; this.children = []; this.events = {}; this.value = ''; this.attrs = {};
     }
     appendTo(target) { target.children.push(this); return this; }
     text(value) { this.value = value; return this; }
-    attr() { return this; }
+    attr(k,v) { this.attrs[k] = v; return this; }
     append(child) { this.children.push(child); return this; }
     on(event, handler) { this.events[event] = handler; return this; }
     remove() { return this; }
@@ -33,6 +33,21 @@ function harness(opts = {}) {
   class Parser {
     parseFromString(html) {
       const category = /b-favorites_content__cats_list_link/.test(html);
+      const hasFilms = /b-content__inline_item/.test(html);
+      const film = {
+        querySelector(selector) {
+          if (selector === '.b-content__inline_item-link a[href]') {
+            return {getAttribute: k => k === 'href' ? '/series/fiction/example-film.html' :
+              k === 'title' ? 'Периферийные устройства' : null,
+              textContent: 'Периферийные устройства'};
+          }
+          if (selector === '.b-content__inline_item-cover img')
+            return opts.noPoster ? null : {getAttribute: k =>
+              k === 'data-src' ? 'https://cdn.example.com/peripheral.jpg' : null};
+          if (selector === '.b-content__inline_item-link div') return {textContent: '2022 США'};
+          return null;
+        }
+      };
       return {
         title: '',
         querySelector(selector) {
@@ -40,6 +55,7 @@ function harness(opts = {}) {
           return null;
         },
         querySelectorAll(selector) {
+          if (hasFilms && selector === '.b-content__inline_item') return [film];
           if (category && selector === 'a.b-favorites_content__cats_list_link') {
             return [{
               getAttribute: () => '/favorites/7/',
@@ -78,6 +94,7 @@ function harness(opts = {}) {
     Online: { register() {} },
     Menu: { addButton() {} },
     Noty: { show(msg) { alerts.push(msg); } },
+    Select: { show(x) { selections.push(x); } },
     Scroll: class {
       constructor() { this.added = []; scrolls.push(this); }
       minus() {}
@@ -113,8 +130,10 @@ function harness(opts = {}) {
     DOMParser: Parser, XMLHttpRequest: XHR, URL, Navigator: {},
     console: { log() {} }, setTimeout() {}
   }, { timeout: 5000 });
-  return { components, settings, scrolls, calls, alerts, states,
+  return { components, settings, scrolls, calls, alerts, states, selections,
     open() { settings.rezka_open_favorites.onChange(); },
+    openCategory() { Lampa.Activity.push({component:'rezka_favorites',
+      rezka_category:'7',rezka_page:1}); },
     startAgain() { current.start(); },
     get current() { return current; }
   };
@@ -147,4 +166,44 @@ test('favorites parser failure is visible, not a blank screen', () => {
   const app = harness({ response: '<html><title>Login</title></html>' });
   app.open();
   assert.ok(app.alerts.some(s => String(s).includes('Не удалось подтвердить')));
+});
+
+
+test('favorites category uses native Lampa card grid, poster, year and same watch actions',()=>{
+  const app = harness({response:'<div class="b-favorites_content"><div class="b-content__inline_item"></div></div>'});
+  app.openCategory();
+  assert.equal(app.calls.length,1);
+  assert.match(app.calls[0].url,/favorites%2F7%2F/);
+  const page = app.scrolls[0].added[0];
+  const grid=page.children[0];
+  assert.match(grid.markup,/rezka-fav-grid/);
+  assert.equal(grid.children.length,1);
+  const card=grid.children[0];
+  assert.match(card.markup,/card selector/);
+  assert.match(card.markup,/rezka-fav-card/);
+  assert.match(card.children[0].markup,/card__view/);
+  assert.equal(card.children[0].children[0].attrs.src,'https://cdn.example.com/peripheral.jpg');
+  assert.equal(card.children[1].value,'Периферийные устройства');
+  assert.equal(card.children[2].value,'2022');
+  card.events['hover:enter']();
+  assert.equal(app.selections.length,1);
+  assert.deepEqual(Array.from(app.selections[0].items,i=>i.action),['watch','card']);
+  app.startAgain();
+  assert.equal(app.calls.length,1,'navigation should not reload page');
+});
+test('favorites card has a visible fallback when poster is missing',()=>{
+  const app=harness({noPoster:true,
+    response:'<div class="b-favorites_content"><div class="b-content__inline_item"></div></div>'});
+  app.openCategory();
+  const card=app.scrolls[0].added[0].children[0].children[0];
+  assert.match(card.children[0].children[0].markup,/rezka-fav-no-poster/);
+  assert.equal(card.children[0].children[0].value,'Нет постера');
+  assert.equal(card.children[1].value,'Периферийные устройства');
+});
+test('Continue screen remains a textual list, never converted into poster cards',()=>{
+  const app=harness();
+  assert.ok(app.components.rezka_continue,'existing Continue component retained');
+  const contents=plugin.substring(plugin.indexOf('function rezkaContinueComponent'),plugin.indexOf('function rezkaFavoritesRegister'));
+  assert.match(contents,/online selector rezka-fav-row/);
+  assert.doesNotMatch(contents,/posterCard|rezka-fav-grid/);
 });
