@@ -1317,6 +1317,202 @@
         };
     }
 
+    /* ====================================================
+     * Account "Досмотреть": HDRezka /continue/ + Netlify sync entries.
+     * The HDRezka page is READ ONLY. Lampa progress is stored separately.
+     * ==================================================== */
+    function rezkaParseContinue(html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var rows = doc.querySelectorAll('.b-videosaves__list_item[id^="videosave"]');
+        var items = [];
+        for (var i = 0; i < rows.length; i++) {
+            var node = rows[i], link = node.querySelector('.td.title a[href]');
+            if (!link) continue;
+            var url = rezkaSiteURL(link.getAttribute('href'));
+            if (!url) continue;
+            var copy = link.cloneNode(true);
+            var subtitle = copy.querySelector('small');
+            if (subtitle) subtitle.remove();
+            var title = (copy.textContent || '').trim().replace(/\s+/g, ' ');
+            if (!title) continue;
+            var info = node.querySelector('.td.info'), text = info ? info.textContent.trim() : '';
+            var date = node.querySelector('.td.date');
+            var action = info && info.querySelector('span');
+            if (action) text = text.replace(action.textContent, '').trim();
+            var poster = rezkaPosterURL(link.getAttribute('data-cover_url'));
+            var details = node.querySelector('.td.title small');
+            items.push({
+                title: title, url: url, poster: poster,
+                info: text, details: details ? details.textContent.trim() : '',
+                date: date ? date.textContent.trim() : '',
+                watched: !!node.querySelector('.i-sprt.view.watched'),
+                source: 'hdrezka'
+            });
+        }
+        if (!items.length &&
+            !doc.querySelector('.b-videosaves, .b-videosaves__list_item') &&
+            /loginForm|<title[^>]*>\s*(?:Вход|Login)/i.test(html)) {
+            return { items: [], error: 'HDRezka требует повторной авторизации' };
+        }
+        return { items: items, error: '' };
+    }
+
+    function rezkaContinueHints(text) {
+        text = String(text || '');
+        var match = text.match(/(\d+)\s*сезон\s*(\d+)\s*серия/i) ||
+            text.match(/сезон\s*(\d+)[^\d]+серия\s*(\d+)/i);
+        return {
+            season: match ? match[1] : '',
+            episode: match ? match[2] : '',
+            voice: (text.match(/\(([^()]{2,100})\)\s*$/) || [])[1] || ''
+        };
+    }
+
+    function rezkaContinueOpen() {
+        Lampa.Activity.push({ url: '', title: 'Досмотреть HDRezka',
+            component: 'rezka_continue', page: 1 });
+    }
+
+    function rezkaContinueComponent(object) {
+        var scroll = new Lampa.Scroll({ mask: true, over: true });
+        var explorer = new Lampa.Explorer(object);
+        var html = $('<div class="rezka-fav-page"></div>');
+        var destroyed = false, initialized = false, self = this;
+        var calls = [];
+        this.create = function () {
+            scroll.minus();
+            explorer.appendFiles(scroll.render());
+            return this.render();
+        };
+        this.render = function () { return explorer.render(); };
+        this.start = function () {
+            if (Lampa.Activity.active().activity !== this.activity) return;
+            if (!initialized) { initialized = true; this.initialize(); }
+            Lampa.Controller.add('content', {
+                toggle: function () {
+                    Lampa.Controller.collectionSet(scroll.render(), explorer.render());
+                    Lampa.Controller.collectionFocus(false, scroll.render());
+                },
+                up: function () {
+                    if (Navigator.canmove('up')) Navigator.move('up');
+                    else Lampa.Controller.toggle('head');
+                },
+                down: function () { Navigator.move('down'); },
+                left: function () { Lampa.Controller.toggle('menu'); },
+                right: function () { Navigator.move('right'); },
+                back: this.back
+            });
+            Lampa.Controller.toggle('content');
+        };
+        this.pause = function () {};
+        this.stop = function () {};
+        this.back = function () { Lampa.Activity.backward(); };
+        this.destroy = function () {
+            destroyed = true;
+            calls.forEach(function (call) { if (call && call.abort) call.abort(); });
+            scroll.destroy(); explorer.destroy(); html.remove();
+        };
+        function draw(server, local, warning) {
+            if (destroyed) return;
+            html.empty();
+            var combined = [], existing = {};
+            (local || []).forEach(function (v) {
+                if (!v || !v.url || !v.title) return;
+                var safe = rezkaSiteURL(v.url);
+                if (!safe) return;
+                var entry = $.extend ? $.extend({}, v) : Object.assign({}, v);
+                entry.url = safe; entry.source = 'lampa';
+                existing[new URL(safe).pathname] = entry;
+                combined.push(entry);
+            });
+            (server || []).forEach(function (v) {
+                var key = new URL(v.url).pathname;
+                if (existing[key]) {
+                    if (!existing[key].poster) existing[key].poster = v.poster;
+                    if (!existing[key].details) existing[key].details = v.details;
+                    return;
+                }
+                combined.push(v);
+            });
+            function makeRow(item) {
+                var line = $('<div class="online selector rezka-fav-row"></div>');
+                if (item.poster) $('<img class="rezka-fav-cover" alt="">')
+                    .attr('src', item.poster).appendTo(line);
+                var body = $('<div></div>').appendTo(line);
+                $('<div class="online__title"></div>').text(item.title).appendTo(body);
+                var desc;
+                if (item.source === 'lampa') {
+                    var parts = [];
+                    if (item.season) parts.push('Сезон ' + item.season);
+                    if (item.episode) parts.push('Серия ' + item.episode);
+                    if (item.voice) parts.push(item.voice);
+                    if (item.duration && item.position && item.status !== 'completed') {
+                        var mins = Math.floor(item.position / 60);
+                        parts.push('Продолжить с ' + mins + ':' +
+                            ('0' + (item.position % 60)).slice(-2));
+                    }
+                    if (item.status === 'completed') parts.push('✓ Просмотрено');
+                    desc = parts.join(' · ') || 'Открывали через Lampa';
+                } else {
+                    desc = [item.info, item.date].filter(Boolean).join(' · ') || item.details;
+                }
+                $('<div class="online__quality"></div>').text(desc).appendTo(body);
+                line.on('hover:enter', function () {
+                    var hint = item.source === 'hdrezka' ?
+                        rezkaContinueHints(item.info) : {
+                            season: item.season, episode: item.episode,
+                            voice: item.voice
+                        };
+                    openRezka({
+                        title: item.title, rezka_url: item.url, rezka_poster: item.poster || '',
+                        rezka_resume_season: hint.season || '',
+                        rezka_resume_episode: hint.episode || '',
+                        rezka_resume_translator: item.translator || '',
+                        rezka_resume_voice: hint.voice || '',
+                        rezka_resume_position: item.status === 'completed' ? 0 : item.position || 0
+                    });
+                }).appendTo(html);
+            }
+            if (combined.length) combined.forEach(makeRow);
+            else $('<div class="rezka-fav-msg"></div>').text(
+                'История пока пуста. Запусти фильм или серию через HDRezka.').appendTo(html);
+            if (warning) $('<div class="rezka-fav-msg"></div>').text(warning).appendTo(html);
+            scroll.append(html);
+            self.activity.loader(false);
+            self.activity.toggle();
+        }
+        this.initialize = function () {
+            self.activity.loader(true);
+            var remote = null, saved = null, warning = '', settled = 0;
+            function done() {
+                if (destroyed || ++settled !== 2) return;
+                draw(remote || [], saved || [], warning);
+            }
+            calls.push(rezkaWatchRead(function (items) {
+                saved = items; done();
+            }, function (message) {
+                saved = []; warning = 'Синхронизация Netlify: ' + message; done();
+            }));
+            calls.push(request({
+                url: proxify(getDomain() + '/continue/'), dataType: 'text'
+            }, function (result) {
+                try {
+                    var parsed = rezkaParseContinue(result);
+                    remote = parsed.items;
+                    if (parsed.error) warning += (warning ? '; ' : '') + parsed.error;
+                } catch (e) {
+                    remote = [];
+                    warning += (warning ? '; ' : '') + 'Не удалось прочитать историю HDRezka';
+                }
+                done();
+            }, function (message) {
+                remote = [];
+                warning += (warning ? '; ' : '') + 'История сайта: ' + (message || 'ошибка сети');
+                done();
+            }));
+        };
+    }
+
     function rezkaFavoritesRegister() {
         Lampa.Component.add('rezka_favorites', rezkaFavoritesComponent);
         if (!document.getElementById('rezka-fav-style')) {
