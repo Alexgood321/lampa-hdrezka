@@ -86,7 +86,7 @@ test('five menu links register once, migrating old labels and enabling only the 
     'HD: Просмотрено','HD: Досмотреть','HD: Новинки']);
   assert.deepEqual(h.menus.map(i=>i.hidden),[false,true,true,false,true]);
   assert.equal(h.storage.hdrezka_nav_defaults_v1,true);
-  assert.deepEqual(h.storage.menu_sort,
+  assert.deepEqual(Array.from(h.storage.menu_sort),
     ['Главная','История','HD: Избранное','HD: Досмотреть']);
   h.nav.register();
   assert.equal(h.menus.length,5);
@@ -128,7 +128,7 @@ test('user-hidden old buttons survive plugin updates, no forced reset',()=>{
   h.nav.register();
   assert.equal(h.menus.find(x=>x.title==='HD: Досмотреть').hidden,true);
   assert.equal(h.menus.find(x=>x.title==='HD: В планах').hidden,false);
-  assert.deepEqual(h.storage.menu_hide,['HD: Досмотреть']);
+  assert.deepEqual(Array.from(h.storage.menu_hide),['HD: Досмотреть']);
 });
 
 
@@ -140,8 +140,8 @@ test('migration keeps user sidebar order, keeps unrelated items and removes dupl
   h.storage.menu_sort = ['История','Новинки HDRezka','Избранное HDRezka',
     'HD: Избранное','Настройки','Досмотреть HDRezka'];
   h.nav.register();
-  assert.deepEqual(h.storage.menu_hide,['HD: В планах','HD: Просмотрено']);
-  assert.deepEqual(h.storage.menu_sort,[
+  assert.deepEqual(Array.from(h.storage.menu_hide),['HD: В планах','HD: Просмотрено']);
+  assert.deepEqual(Array.from(h.storage.menu_sort),[
     'История','HD: Новинки','HD: Избранное','Настройки','HD: Досмотреть'
   ]);
   assert.deepEqual(h.menus.map(i=>i.hidden),[false,true,true,false,false]);
