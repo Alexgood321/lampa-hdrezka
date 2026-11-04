@@ -2206,8 +2206,22 @@
         else if (Lampa.Template && Lampa.Template.get) {
             try {
                 var root = Lampa.Template.get('settings_main');
-                if (root && root.find &&
-                    root.find('[data-component="channels"]').length) target = 'channels';
+                if (root && root.find) {
+                    if (root.find('[data-component="channels"]').length) {
+                        target = 'channels';
+                    } else {
+                        // Some Lampa distributions use another component ID for
+                        // the same visible "Каналы" section.
+                        var folders = root.find('.settings-folder[data-component]');
+                        if (folders && folders.each) folders.each(function () {
+                            if (target !== 'rezka') return;
+                            var folder = $(this);
+                            var caption = folder.find('.settings-folder__name').text();
+                            if (/^\\s*Каналы\\s*$/i.test(caption || ''))
+                                target = folder.attr('data-component') || 'rezka';
+                        });
+                    }
+                }
             } catch (ignore) {}
         }
         Lampa.SettingsApi.addParam({
