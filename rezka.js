@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.4.2',
+        version: '1.5.0',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -1612,6 +1612,218 @@
         };
     }
 
+
+    /* ====================================================
+     * HDRezka shelves for SURS Pro (opt-in from "Порядок полок").
+     * Stable registration IDs: saved order survives app restarts.
+     * No duplicate Lampa.ContentRows registration or new credentials.
+     * ==================================================== */
+    var rezkaShelfCache = {};
+    var rezkaShelfCats = null;
+    var rezkaShelfCatsAt = 0;
+    var rezkaShelfSpecs = [
+        { id: 'hdrezka_watchlist', title: 'HDRezka · Буду смотреть', kind: 'watchlist',
+          desc: 'Из коллекции HDRezka «Буду смотреть»', def: false },
+        { id: 'hdrezka_continue', title: 'HDRezka · Досмотреть', kind: 'continue',
+          desc: 'История HDRezka и прогресс из Netlify', def: false },
+        { id: 'hdrezka_watched', title: 'HDRezka · Просмотрено', kind: 'watched',
+          desc: 'Из коллекции HDRezka «Смотрел»', def: false }
+    ];
+
+    function rezkaShelfCard(entry, action) {
+        var title = String(entry.title || '').trim();
+        var poster = rezkaPosterURL(entry.poster);
+        var year = String(entry.year || '').match(/\b(?:19|20)\d{2}\b/);
+        return {
+            source: 'custom', title: title, name: title,
+            poster: poster, img: poster,
+            release_date: year ? year[0] + '-01-01' : '',
+            overview: entry.subtitle || '',
+            params: {
+                createInstance: function () {
+                    return Lampa.Maker.make('Card', this, function (mod) {
+                        return mod.only('Card', 'Callback');
+                    });
+                },
+                emit: {
+                    onlyEnter: action,
+                    onlyFocus: function () {
+                        if (poster && Lampa.Background && Lampa.Background.change)
+                            Lampa.Background.change(poster);
+                    }
+                }
+            }
+        };
+    }
+
+    function rezkaShelfResult(spec, items, full) {
+        var result = [];
+        (items || []).slice(0, 24).forEach(function (entry) {
+            if (!entry || !rezkaSiteURL(entry.url) || !entry.title) return;
+            var movie = {
+                title: entry.title,
+                rezka_url: rezkaSiteURL(entry.url),
+                rezka_poster: entry.poster || '',
+                year: entry.year || '',
+                rezka_resume_season: entry.season || '',
+                rezka_resume_episode: entry.episode || '',
+                rezka_resume_translator: entry.translator || '',
+                rezka_resume_voice: entry.voice || '',
+                rezka_resume_position: entry.status === 'completed' ? 0 :
+                    Number(entry.position) || 0
+            };
+            result.push(rezkaShelfCard(entry, function () { openRezka(movie); }));
+        });
+        // Explicit "Все" tile works even in SURS modes without category_full
+        // pagination support for private custom sources.
+        if (result.length) {
+            result.push({
+                source: 'custom',
+                title: 'Все →', name: 'Все →',
+                poster: './img/img_broken.svg', img: './img/img_broken.svg',
+                params: {
+                    createInstance: function () {
+                        return Lampa.Maker.make('Card', this, function (mod) {
+                            return mod.only('Card', 'Callback');
+                        });
+                    },
+                    emit: { onlyEnter: full }
+                }
+            });
+        }
+        return { results: result, title: spec.title,
+            params: { items: { view: 20, mapping: 'line' } } };
+    }
+
+    function rezkaShelfFindCategory(cats, kind) {
+        var re = kind === 'watched' ?
+            /смотрел|просмотрен|уже смотрел/i :
+            /буду\s*смотреть|хочу\s*посмотреть|смотреть\s*позже|планирую/i;
+        for (var i = 0; i < cats.length; i++) {
+            if (re.test(cats[i].name || '')) return cats[i].id;
+        }
+        return '';
+    }
+
+    function rezkaShelfFavorites(kind, done) {
+        function loadWithCategories(cats) {
+            var cat = rezkaShelfFindCategory(cats, kind);
+            if (!cat) { done([]); return; }
+            rezkaFetchFavorites('/favorites/' + cat + '/', function (error, html) {
+                if (error) { done([]); return; }
+                var parsed = rezkaParseFavorites(html, 1);
+                done(parsed.error ? [] : parsed.items);
+            });
+        }
+        if (rezkaShelfCats && Date.now() - rezkaShelfCatsAt < 600000) {
+            loadWithCategories(rezkaShelfCats); return;
+        }
+        rezkaFetchFavorites('/favorites/', function (error, html) {
+            if (error) { done([]); return; }
+            var parsed = rezkaParseFavorites(html, 1);
+            if (parsed.error) { done([]); return; }
+            rezkaShelfCats = parsed.cats;
+            rezkaShelfCatsAt = Date.now();
+            loadWithCategories(parsed.cats);
+        });
+    }
+
+    function rezkaShelfContinue(done) {
+        var remote = null, local = null, settled = 0;
+        function finish() {
+            if (++settled < 2) return;
+            var items = [], seen = {};
+            (local || []).forEach(function (entry) {
+                var url = entry && rezkaSiteURL(entry.url);
+                if (!url || !entry.title) return;
+                var key = new URL(url).pathname;
+                if (seen[key]) return;
+                seen[key] = true;
+                items.push({
+                    title: entry.title, url: url, poster: entry.poster,
+                    season: entry.season, episode: entry.episode,
+                    translator: entry.translator, voice: entry.voice,
+                    position: entry.position, status: entry.status,
+                    subtitle: [entry.season ? 'Сезон ' + entry.season : '',
+                        entry.episode ? 'Серия ' + entry.episode : '',
+                        entry.voice || ''].filter(Boolean).join(' · ')
+                });
+            });
+            (remote || []).forEach(function (entry) {
+                var url = entry && rezkaSiteURL(entry.url);
+                if (!url || !entry.title) return;
+                var key = new URL(url).pathname;
+                if (seen[key]) {
+                    for (var i = 0; i < items.length; i++) {
+                        if (new URL(items[i].url).pathname === key) {
+                            if (!items[i].poster) items[i].poster = entry.poster;
+                            break;
+                        }
+                    }
+                    return;
+                }
+                seen[key] = true;
+                var hint = rezkaContinueHints(entry.info || '');
+                items.push({
+                    title: entry.title, url: url, poster: entry.poster,
+                    season: hint.season, episode: hint.episode, voice: hint.voice,
+                    subtitle: entry.info || entry.date || ''
+                });
+            });
+            done(items);
+        }
+        rezkaWatchRead(function (items) { local = items; finish(); },
+            function () { local = []; finish(); });
+        rezkaFetchFavorites('/continue/', function (error, html) {
+            if (error) remote = [];
+            else {
+                try { remote = rezkaParseContinue(html).items; }
+                catch (ignore) { remote = []; }
+            }
+            finish();
+        });
+    }
+
+    function rezkaShelfLoad(spec, callback) {
+        var key = getDomain() + '|' + getBridge() + '|' + spec.id;
+        var cached = rezkaShelfCache[key];
+        if (cached && Date.now() - cached.at < (spec.kind === 'continue' ? 45000 : 180000)) {
+            callback(rezkaShelfResult(spec, cached.items, function () {
+                if (spec.kind === 'continue') rezkaContinueOpen();
+                else rezkaFavoritesOpen(rezkaShelfFindCategory(rezkaShelfCats || [],
+                    spec.kind), 1);
+            }));
+            return;
+        }
+        function complete(items) {
+            rezkaShelfCache[key] = { at: Date.now(), items: items || [] };
+            callback(rezkaShelfResult(spec, items, function () {
+                if (spec.kind === 'continue') rezkaContinueOpen();
+                else rezkaFavoritesOpen(rezkaShelfFindCategory(rezkaShelfCats || [],
+                    spec.kind), 1);
+            }));
+        }
+        if (spec.kind === 'continue') rezkaShelfContinue(complete);
+        else rezkaShelfFavorites(spec.kind, complete);
+    }
+
+    function rezkaShelvesRegister() {
+        window.SURS_EXTERNAL_SHELVES = window.SURS_EXTERNAL_SHELVES || {};
+        rezkaShelfSpecs.forEach(function (spec) {
+            var definition = {
+                id: spec.id, title: spec.title, desc: spec.desc,
+                cat: 'plugin', def: false,
+                // SURS Pro calls this on a selected, enabled shelf.
+                loader: function (callback) { rezkaShelfLoad(spec, callback); }
+            };
+            // Register through SURS when loaded, or pre-populate its shared
+            // registry when HDRezka loads first. Do not auto-enable a row.
+            if (typeof window.surs_register_shelf === 'function')
+                window.surs_register_shelf(definition);
+            else window.SURS_EXTERNAL_SHELVES[spec.id] = definition;
+        });
+    }
+
     function rezkaFavoritesRegister() {
         Lampa.Component.add('rezka_favorites', rezkaFavoritesComponent);
         Lampa.Component.add('rezka_continue', rezkaContinueComponent);
@@ -1848,6 +2060,7 @@
             registerManifest();
             registerComponent();
             rezkaFavoritesRegister();
+            rezkaShelvesRegister();
             addSettings();
             addOnlineSource();
             addCardButton();
