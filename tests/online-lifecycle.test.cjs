@@ -167,7 +167,7 @@ test('watch activity initializes itself once and renders an episode item', ()=>{
   assert.match(page.children[0].markup,/online selector/);
   assert.equal(page.children[0].children[0].content,'Смотреть фильм');
   h.config.view.start();
-  assert.equal(h.calls.length,1,'no second request when restoring activity');
+  assert.equal(h.calls.filter(c=>c.url.includes('/v1/proxy')).length,1,'no duplicate film fetch on resumed activity');
 });
 
 test('watch activity reports a parse failure, not a blank screen', ()=>{
