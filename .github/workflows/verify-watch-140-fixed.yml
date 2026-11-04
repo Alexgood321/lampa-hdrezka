@@ -1,0 +1,21 @@
+name: Verify watch sync 1.4.0 fixed
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  cdn:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify pinned JS version and syntax
+        run: |
+          set -eu
+          curl -fsS -D /tmp/headers --max-time 30 \
+            -H "Origin: https://lampa.mx" \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@53296ba53acf210b88bf5c66ce9dddf153f87b1d/rezka.js" -o /tmp/rezka.js
+          grep -q "version: '1.4.0'" /tmp/rezka.js
+          grep -q "rezka_continue" /tmp/rezka.js
+          grep -qi "^access-control-allow-origin: \*" /tmp/headers
+          node --check /tmp/rezka.js
+          echo "HDRezka 1.4.0 JS published and valid"
