@@ -1,0 +1,23 @@
+name: Verify HDRezka full-width 1.4.2
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check pinned public JS full-width mode with CORS
+        run: |
+          set -eu
+          curl -fsS --max-time 25 -D /tmp/headers \
+            -H "Origin: https://lampa.mx" \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@b314ec86b82803f51a7c7299c23925064687cf3c/rezka.js" \
+            -o /tmp/rezka.js
+          grep -q "version: '1.4.2'" /tmp/rezka.js
+          grep -q "object.params.noinfo = true" /tmp/rezka.js
+          test "$(grep -c "object.params.noinfo = true" /tmp/rezka.js)" -eq 2
+          grep -qi "^access-control-allow-origin: \*" /tmp/headers
+          node --check /tmp/rezka.js
+          echo "HDRezka 1.4.2 full-width plugin published and valid"
