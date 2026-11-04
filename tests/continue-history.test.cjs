@@ -55,6 +55,10 @@ test('HDRezka /continue/ entries are parsed with titles, URL and last episode',(
  const hints=methods.rezkaContinueHints(first.info);
  assert.equal(hints.season,'1');
  assert.equal(hints.episode,'2');
+ const nested=methods.rezkaContinueHints('1 сезон 8 серия (HDRezka Studio (18+))');
+ assert.equal(nested.season,'1');
+ assert.equal(nested.episode,'8');
+ assert.equal(nested.voice,'HDRezka Studio (18+)');
 });
 test('empty HDRezka history is represented as empty list, not fake entries',()=>{
  const result=harness().rezkaParseContinue('<div class="b-videosaves"></div>');
