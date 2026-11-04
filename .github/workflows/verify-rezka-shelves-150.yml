@@ -1,0 +1,31 @@
+name: Check HDRezka home shelves 1.5.0
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  cdn:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify HDRezka pinned CDN JS
+        run: |
+          set -eu
+          curl -fsS -D /tmp/headers --max-time 25 \
+            -H "Origin: https://lampa.mx" \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-hdrezka@c69fa09f332cec72d574e4a88d077cc3d36a4578/rezka.js" -o /tmp/rezka.js
+          grep -q "version: '1.5.0'" /tmp/rezka.js
+          grep -q 'hdrezka_watchlist' /tmp/rezka.js
+          grep -q 'hdrezka_continue' /tmp/rezka.js
+          grep -q 'hdrezka_watched' /tmp/rezka.js
+          grep -qi '^access-control-allow-origin: \*' /tmp/headers
+          node --check /tmp/rezka.js
+          echo "HDRezka 1.5.0: pinned CDN available"
+      - name: Verify SURS 3.7.4 compatibility
+        run: |
+          curl -fsS -m 25 \
+            "https://cdn.jsdelivr.net/gh/Alexgood321/lampa-plugins@489ebf40387af90e5a20a6ea909d78bf90b8a348/surs.js" -o /tmp/surs.js
+          grep -q 'HDRezka Shelves Compatibility' /tmp/surs.js
+          grep -q 'externalTimeout' /tmp/surs.js
+          node --check /tmp/surs.js
+          echo "SURS 3.7.4: pinned CDN available"
