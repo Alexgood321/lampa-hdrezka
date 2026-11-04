@@ -39,7 +39,9 @@ function harness(withSurs) {
       set:(name,value)=>{storage[name]=value;}},
     Listener:{follow(){}},
     Activity:{push:p=>pushed.push(p)},
-    Maker:{make:(type,data)=>({type,data})},
+    Maker:{make:(type,data,modules)=>({
+      type, data, modules:modules({only:(...items)=>items})
+    })},
     Background:{change(){}}
   };
   vm.runInNewContext(exposed, {window:win,Lampa,URL,console:{log(){}},setTimeout(){}},
@@ -97,7 +99,19 @@ test('watchlist cards use Lampa Maker and open existing HDRezka player',()=>{
   assert.equal(card.title,'Периферийные устройства');
   assert.equal(card.poster,'https://cdn.example/poster.jpg');
   assert.equal(card.release_date,'2022-01-01');
-  assert.equal(card.params.createInstance.call(card).type,'Card');
+  // Lampa.Utils.createInstance calls createInstance(element), not .call(element).
+  const instance=card.params.createInstance(card);
+  assert.equal(instance.type,'Card');
+  assert.equal(instance.data,card);
+  assert.deepEqual(Array.from(instance.modules),['Card','Release','Callback']);
+  assert.equal(instance.data.poster,'https://cdn.example/poster.jpg');
+  assert.equal(instance.data.title,'Периферийные устройства');
+  // The template's {release_year} is handled by the Release module.
+  const more=result.results[1];
+  const moreInstance=more.params.createInstance(more);
+  assert.equal(moreInstance.data,more);
+  assert.equal(moreInstance.data.title,'Все →');
+  assert.ok(moreInstance.modules.includes('Release'));
   card.params.emit.onlyEnter();
   assert.equal(h.pushed.at(-1).component,'rezka_online');
   assert.equal(h.pushed.at(-1).movie.rezka_url,favoriteEntry.url);
@@ -146,4 +160,45 @@ test('empty account collections do not invent cards or show bogus items',()=>{
   let output;
   h.registered[2].loader(data=>{output=data;});
   assert.equal(output.results.length,0);
+});
+
+test('all three shelves create full, not empty, Lampa cards',()=>{
+  const h=harness(true);
+  const categories=[
+    {id:'386',name:'Буду смотреть'},
+    {id:'48',name:'Смотрел'}
+  ];
+  h.hooks.setCategories(categories);
+  h.hooks.inject('favorites',(kind,cb)=>cb([favoriteEntry]));
+  h.hooks.inject('continue',cb=>cb([favoriteEntry]));
+  h.hooks.register();
+  h.registered.forEach((shelf)=>{
+    let output;
+    shelf.loader(data=>{output=data;});
+    assert.ok(output.results.length>0,shelf.id);
+    const movie=output.results[0];
+    const instance=movie.params.createInstance(movie);
+    assert.equal(instance.data, movie, shelf.id);
+    assert.equal(instance.data.title,'Периферийные устройства',shelf.id);
+    assert.equal(instance.data.poster,'https://cdn.example/poster.jpg',shelf.id);
+    assert.ok(instance.modules.includes('Release'),shelf.id);
+  });
+});
+
+test('Continue shelf without release year has the Release module to remove placeholder',()=>{
+  const h=harness(true);
+  h.hooks.inject('continue',cb=>cb([{
+    title:'Ноктюрн',
+    url:'https://flymaterez.net/series/drama/900-nocturne.html',
+    poster:'https://cdn.example/nocturne.jpg'
+  }]));
+  h.hooks.register();
+  let output;
+  h.registered[1].loader(data=>{output=data;});
+  const entry=output.results[0];
+  assert.equal(entry.release_date,'');
+  const instance=entry.params.createInstance(entry);
+  assert.ok(instance.modules.includes('Release'));
+  assert.equal(instance.data.title,'Ноктюрн');
+  assert.equal(instance.data.poster,'https://cdn.example/nocturne.jpg');
 });
