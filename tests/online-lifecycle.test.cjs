@@ -279,3 +279,38 @@ test('legacy b-translator__list is still supported and missing list has safe fal
   assert.equal(parse(old,'20','0','0','0')[0].name,'TVShows');
   assert.equal(parse('<html></html>','20','0','0','0').length,0);
 });
+
+
+test('Premium dubbing is marked from b-prem_translator and free voices stay unmarked',()=>{
+  const html='<script>sof.tv.initCDNSeriesEvents(51560, 702, 2, 0, false, "mirror");</script>' +
+    '<ul id="translators-list">' +
+    '<li data-translator_id="701" class="b-prem_translator active">HDRezka Studio (18+)</li>' +
+    '<li data-translator_id="702" class="active">HDRezka Studio</li>' +
+    '<li data-translator_id="703" class="b-prem_translator">Дубляж (18+)</li>' +
+    '<li data-translator_id="704">Premium Voice (free tier test)</li>' +
+    '</ul>' +
+    '<ul class="b-simple_seasons__list"><li class="b-simple_season__item" data-tab_id="1">1 сезон</li></ul>' +
+    '<ul class="b-simple_episodes__list"><li class="b-simple_episode__item" data-season_id="1" data-episode_id="1">1 серия</li></ul>';
+  const h=harness({response:html});
+  const voices=h.w.__rezka_test_hooks.rezkaParseTranslators(html,'702','2','0','0');
+  assert.deepEqual(Array.from(voices,v=>v.id),['701','702','703','704']);
+  assert.deepEqual(Array.from(voices,v=>v.premium),[true,false,true,false]);
+  assert.equal(voices[1].name,'HDRezka Studio','do not relabel original studio name');
+
+  h.Lampa.Activity.push({component:'rezka_online',
+    movie:{title:'Ноктюрн',rezka_url:'https://flymaterez.net/series/drama/test.html'}});
+  const before=h.config.filter.last.values.find(v=>v.stype==='voice');
+  assert.equal(before.subtitle,'HDRezka Studio');
+  assert.match(before.items[0].title,/HDRezka Studio \(18\+\).*🔒 Premium/);
+  assert.equal(before.items[1].title,'HDRezka Studio');
+  assert.match(before.items[2].title,/Дубляж \(18\+\).*🔒 Premium/);
+  assert.equal(before.items[3].title,'Premium Voice (free tier test)');
+  h.config.filter.onSelect('filter',{stype:'voice'},{index:0});
+  const selected=h.config.filter.last.values.find(v=>v.stype==='voice');
+  assert.match(selected.subtitle,/🔒 Premium/);
+  const ep=h.scrolls[0].elements.at(-1).children[0];
+  assert.match(ep.children[1].content,/🔒 Premium/);
+  ep.events['hover:enter']();
+  const post=h.calls.find(c=>c.method==='POST');
+  assert.equal(new URLSearchParams(post.body).get('translator_id'),'701');
+});
