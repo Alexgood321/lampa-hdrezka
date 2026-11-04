@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.7.0',
+        version: '1.7.1',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -2102,16 +2102,144 @@
                 '.rezka-fav-msg{padding:1em;opacity:.8}';
             document.head.appendChild(style);
         }
-        if (Lampa.Menu && Lampa.Menu.addButton) {
-            try { Lampa.Menu.addButton(
-                '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/></svg>',
-                'Избранное HDRezka', function () { rezkaFavoritesOpen('', 1); }
-            );
-                Lampa.Menu.addButton(
-                    '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h8l-4-4m4 4-4 4"/><path d="M21 12a9 9 0 1 1-9-9"/></svg>',
-                    'Досмотреть HDRezka', rezkaContinueOpen
-                );
-            } catch (error) { console.log('REZKA', 'menu error', error.message); }
+        rezkaNavRegister();
+    }
+
+
+    // Register alongside standard Lampa menu items, so the native menu
+    // editor can reorder/show/hide each HDRezka destination independently.
+    // Channel controls mirror the editor's menu_hide state; do not create
+    // a second, conflicting visibility source.
+    var rezkaNavItems = [
+        { key: 'favorites', title: 'Избранное HDRezka', defaultShow: true,
+          open: function () { rezkaFavoritesOpen('', 1); },
+          icon: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>' },
+        { key: 'watchlist', title: 'Буду смотреть HDRezka', defaultShow: false,
+          open: function () { rezkaNavOpenCollection('watchlist'); },
+          icon: '<path d="M3 5h18v14H3zM8 2v6M16 2v6"/>' },
+        { key: 'watched', title: 'Просмотрено HDRezka', defaultShow: false,
+          open: function () { rezkaNavOpenCollection('watched'); },
+          icon: '<path d="M4 12l5 5L20 6"/><path d="M3 3h18v18H3z"/>' },
+        { key: 'continue', title: 'Досмотреть HDRezka', defaultShow: true,
+          open: rezkaContinueOpen,
+          icon: '<path d="M3 12h8l-4-4m4 4-4 4"/><path d="M21 12a9 9 0 1 1-9-9"/>' },
+        { key: 'newest', title: 'Новинки HDRezka', defaultShow: false,
+          open: rezkaNewestOpen,
+          icon: '<path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>' }
+    ];
+    var rezkaNavButtons = {};
+
+    function rezkaNavHidden() {
+        var list = Lampa.Storage.get('menu_hide', '[]');
+        return Array.isArray(list) ? list.slice() : [];
+    }
+
+    function rezkaNavOpenCollection(kind) {
+        var cached = rezkaShelfCats || [];
+        var catId = rezkaShelfFindCategory(cached, kind);
+        if (catId) { rezkaFavoritesOpen(catId, 1); return; }
+        // Categories are account-specific; discover the ID before opening.
+        rezkaFetchFavorites('/favorites/', function (error, html) {
+            if (error) {
+                if (Lampa.Noty) Lampa.Noty.show('HDRezka: ' + error);
+                return;
+            }
+            var parsed = rezkaParseFavorites(html, 1);
+            if (parsed.error) {
+                if (Lampa.Noty) Lampa.Noty.show('HDRezka: ' + parsed.error);
+                return;
+            }
+            rezkaShelfCats = parsed.cats;
+            rezkaShelfCatsAt = Date.now();
+            catId = rezkaShelfFindCategory(parsed.cats, kind);
+            if (catId) rezkaFavoritesOpen(catId, 1);
+            else if (Lampa.Noty) Lampa.Noty.show('HDRezka: коллекция не найдена');
+        });
+    }
+
+    function rezkaNavSetVisible(item, visible) {
+        var hidden = rezkaNavHidden();
+        var pos = hidden.indexOf(item.title);
+        if (visible && pos !== -1) hidden.splice(pos, 1);
+        if (!visible && pos === -1) hidden.push(item.title);
+        Lampa.Storage.set('menu_hide', hidden);
+        if (rezkaNavButtons[item.key] && rezkaNavButtons[item.key].toggleClass) {
+            rezkaNavButtons[item.key].toggleClass('hidden', !visible);
+        }
+    }
+
+    function rezkaNavRegister() {
+        if (!Lampa.Menu || !Lampa.Menu.addButton) return;
+        var hidden = rezkaNavHidden();
+        // Existing menu editor choices are not overwritten by upgrades.
+        if (!Lampa.Storage.get('hdrezka_nav_defaults_v1', false)) {
+            rezkaNavItems.forEach(function (item) {
+                if (!item.defaultShow && hidden.indexOf(item.title) === -1)
+                    hidden.push(item.title);
+            });
+            Lampa.Storage.set('menu_hide', hidden);
+            Lampa.Storage.set('hdrezka_nav_defaults_v1', true);
+        }
+        rezkaNavItems.forEach(function (item) {
+            if (rezkaNavButtons[item.key]) return;
+            try {
+                var icon = '<svg width="24" height="24" viewBox="0 0 24 24" ' +
+                    'fill="none" stroke="currentColor" stroke-width="2">' +
+                    item.icon + '</svg>';
+                var button = Lampa.Menu.addButton(icon, item.title, item.open);
+                rezkaNavButtons[item.key] = button || null;
+                if (button && button.toggleClass)
+                    button.toggleClass('hidden', rezkaNavHidden().indexOf(item.title) !== -1);
+            } catch (error) {
+                console.log('REZKA', 'menu register:', item.key, error.message);
+            }
+        });
+    }
+
+    function rezkaChannelsSettingsRegister() {
+        if (!Lampa.SettingsApi || !Lampa.SettingsApi.addParam) return;
+        var target = 'rezka';
+        // Different Lampa builds expose "Каналы" as an API component or
+        // as a static settings-main folder. Use it when present.
+        if (Lampa.SettingsApi.getComponent &&
+            Lampa.SettingsApi.getComponent('channels')) target = 'channels';
+        else if (Lampa.Template && Lampa.Template.get) {
+            try {
+                var root = Lampa.Template.get('settings_main');
+                if (root && root.find &&
+                    root.find('[data-component="channels"]').length) target = 'channels';
+            } catch (ignore) {}
+        }
+        Lampa.SettingsApi.addParam({
+            component: target,
+            param: { name: 'hdrezka_channels_header', type: 'title' },
+            field: { name: 'HDRezka · Разделы бокового меню' }
+        });
+        rezkaNavItems.forEach(function (item) {
+            var field = 'hdrezka_nav_' + item.key;
+            var enabled = rezkaNavHidden().indexOf(item.title) === -1;
+            Lampa.Storage.set(field, enabled, true);
+            Lampa.SettingsApi.addParam({
+                component: target,
+                param: { name: field, type: 'trigger', default: item.defaultShow },
+                field: { name: 'HDRezka: ' + item.title.replace(' HDRezka', ''),
+                    description: 'Показывать этот раздел в боковом меню Lampa' },
+                onChange: function (value) {
+                    rezkaNavSetVisible(item, value === true || value === 'true');
+                }
+            });
+        });
+        // The native menu editor writes menu_hide. Keep settings in sync
+        // after a sidebar edit; no polling or hidden extra state.
+        if (Lampa.Storage.listener && Lampa.Storage.listener.follow) {
+            Lampa.Storage.listener.follow('change', function (event) {
+                if (!event || event.name !== 'menu_hide') return;
+                var hidden = rezkaNavHidden();
+                rezkaNavItems.forEach(function (item) {
+                    Lampa.Storage.set('hdrezka_nav_' + item.key,
+                        hidden.indexOf(item.title) === -1, true);
+                });
+            });
         }
     }
 
@@ -2320,6 +2448,7 @@
             rezkaFavoritesRegister();
             rezkaShelvesRegister();
             addSettings();
+            rezkaChannelsSettingsRegister();
             addOnlineSource();
             addCardButton();
             rezkaWatchInstall();
