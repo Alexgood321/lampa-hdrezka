@@ -82,12 +82,12 @@ test('five menu links register once, migrating old labels and enabling only the 
   const h=harness();
   h.nav.register();
   assert.deepEqual(h.menus.map(i=>i.title),[
-    'HD: Избранное','HD: В планах',
-    'HD: Просмотрено','HD: Досмотреть','HD: Новинки']);
+    'HD: Избр.','HD: В планах',
+    'HD: Просмотрено','HD: Продолж.','HD: Новинки']);
   assert.deepEqual(h.menus.map(i=>i.hidden),[false,true,true,false,true]);
   assert.equal(h.storage.hdrezka_nav_defaults_v1,true);
   assert.deepEqual(Array.from(h.storage.menu_sort),
-    ['Главная','История','HD: Избранное','HD: Досмотреть']);
+    ['Главная','История','HD: Избр.','HD: Продолж.']);
   h.nav.register();
   assert.equal(h.menus.length,5);
 });
@@ -108,7 +108,7 @@ test('Channels settings exposes five HDRezka toggles and controls sidebar',()=>{
   assert.equal(h.menus[1].hidden,false);
   assert.equal(h.storage.hdrezka_nav_watchlist,true);
   toggles[3].onChange('false');
-  assert.equal(h.storage.menu_hide.includes('HD: Досмотреть'),true);
+  assert.equal(h.storage.menu_hide.includes('HD: Продолж.'),true);
   assert.equal(h.menus[3].hidden,true);
 });
 
@@ -116,7 +116,7 @@ test('native sidebar editor writes are mirrored to Channels switches',()=>{
   const h=harness();
   h.nav.register();
   h.nav.settings();
-  h.Lampa.Storage.set('menu_hide',['HD: Избранное','HD: Просмотрено']);
+  h.Lampa.Storage.set('menu_hide',['HD: Избр.','HD: Просмотрено']);
   assert.equal(h.storage.hdrezka_nav_favorites,false);
   assert.equal(h.storage.hdrezka_nav_continue,true);
   assert.equal(h.storage.hdrezka_nav_watched,false);
@@ -126,9 +126,9 @@ test('native sidebar editor writes are mirrored to Channels switches',()=>{
 test('user-hidden old buttons survive plugin updates, no forced reset',()=>{
   const h=harness({hidden:['Досмотреть HDRezka'],initialized:true});
   h.nav.register();
-  assert.equal(h.menus.find(x=>x.title==='HD: Досмотреть').hidden,true);
+  assert.equal(h.menus.find(x=>x.title==='HD: Продолж.').hidden,true);
   assert.equal(h.menus.find(x=>x.title==='HD: В планах').hidden,false);
-  assert.deepEqual(Array.from(h.storage.menu_hide),['HD: Досмотреть']);
+  assert.deepEqual(Array.from(h.storage.menu_hide),['HD: Продолж.']);
 });
 
 
@@ -138,15 +138,39 @@ test('migration keeps user sidebar order, keeps unrelated items and removes dupl
     initialized:true
   });
   h.storage.menu_sort = ['История','Новинки HDRezka','Избранное HDRezka',
-    'HD: Избранное','Настройки','Досмотреть HDRezka'];
+    'HD: Избр.','Настройки','Досмотреть HDRezka'];
   h.nav.register();
   assert.deepEqual(Array.from(h.storage.menu_hide),['HD: В планах','HD: Просмотрено']);
   assert.deepEqual(Array.from(h.storage.menu_sort),[
-    'История','HD: Новинки','HD: Избранное','Настройки','HD: Досмотреть'
+    'История','HD: Новинки','HD: Избр.','Настройки','HD: Продолж.'
   ]);
   assert.deepEqual(h.menus.map(i=>i.hidden),[false,true,true,false,false]);
   assert.equal(h.menus.length,5);
   assert.deepEqual(h.menus.map(i=>i.title).every(n=>!n.includes('HDRezka')),true);
+});
+
+
+test('1.7.4 sidebar names migrate without losing hidden state or order',()=>{
+  const h=harness({hidden:['HD: Досмотреть','HD: Избранное'],initialized:true});
+  h.storage.menu_sort=['История','HD: Досмотреть','HD: Избранное',
+    'HD: Продолж.','Настройки'];
+  h.nav.register();
+  assert.deepEqual(Array.from(h.storage.menu_hide),['HD: Продолж.','HD: Избр.']);
+  assert.deepEqual(Array.from(h.storage.menu_sort),
+    ['История','HD: Продолж.','HD: Избр.','Настройки']);
+  assert.equal(h.menus.find(x=>x.title==='HD: Продолж.').hidden,true);
+  assert.equal(h.menus.find(x=>x.title==='HD: Избр.').hidden,true);
+});
+
+test('mobile labels are short and continue icon is clock history',()=>{
+  const h=harness();
+  h.nav.register();
+  assert.equal(h.menus[0].title,'HD: Избр.');
+  assert.equal(h.menus[3].title,'HD: Продолж.');
+  assert.match(h.menus[3].icon,/M12 7v5l4 2/);
+  assert.match(h.menus[3].icon,/stroke-linecap="round"/);
+  assert.doesNotMatch(h.menus[3].icon,/M3 12h8l-4-4/);
+  assert.match(source,/max-width:100%/);
 });
 
 test('Channel settings keep full descriptive HDRezka names',()=>{

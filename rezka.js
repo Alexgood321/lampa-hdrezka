@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.7.4',
+        version: '1.7.5',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -2140,7 +2140,7 @@
     // Channel controls mirror the editor's menu_hide state; do not create
     // a second, conflicting visibility source.
     var rezkaNavItems = [
-        { key: 'favorites', title: 'HD: Избранное', legacyTitle: 'Избранное HDRezka', settingsTitle: 'Избранное', defaultShow: true,
+        { key: 'favorites', title: 'HD: Избр.', legacyTitle: 'Избранное HDRezka', previousTitles: ['HD: Избранное'], settingsTitle: 'Избранное', defaultShow: true,
           open: function () { rezkaFavoritesOpen('', 1); },
           icon: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>' },
         { key: 'watchlist', title: 'HD: В планах', legacyTitle: 'Буду смотреть HDRezka', settingsTitle: 'Буду смотреть', defaultShow: false,
@@ -2149,9 +2149,10 @@
         { key: 'watched', title: 'HD: Просмотрено', legacyTitle: 'Просмотрено HDRezka', settingsTitle: 'Просмотрено', defaultShow: false,
           open: function () { rezkaNavOpenCollection('watched'); },
           icon: '<path d="M4 12l5 5L20 6"/><path d="M3 3h18v18H3z"/>' },
-        { key: 'continue', title: 'HD: Досмотреть', legacyTitle: 'Досмотреть HDRezka', settingsTitle: 'Досмотреть', defaultShow: true,
+        { key: 'continue', title: 'HD: Продолж.', legacyTitle: 'Досмотреть HDRezka', previousTitles: ['HD: Досмотреть'], settingsTitle: 'Досмотреть', defaultShow: true,
           open: rezkaContinueOpen,
-          icon: '<path d="M3 12h8l-4-4m4 4-4 4"/><path d="M21 12a9 9 0 1 1-9-9"/>' },
+          icon: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>' +
+                '<path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>' },
         { key: 'newest', title: 'HD: Новинки', legacyTitle: 'Новинки HDRezka', settingsTitle: 'Новинки', defaultShow: false,
           open: rezkaNewestOpen,
           icon: '<path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>' }
@@ -2169,7 +2170,9 @@
             saved.forEach(function (oldName) {
                 var name = oldName;
                 rezkaNavItems.forEach(function (item) {
-                    if (oldName === item.legacyTitle) name = item.title;
+                    if (oldName === item.legacyTitle ||
+                        (item.previousTitles && item.previousTitles.indexOf(oldName) !== -1))
+                        name = item.title;
                 });
                 if (name !== oldName || updated.indexOf(name) !== -1) changed = true;
                 if (updated.indexOf(name) === -1) updated.push(name);
@@ -2187,7 +2190,7 @@
         style.id = 'rezka-nav-style';
         style.textContent =
             '.menu .menu__item.rezka-nav-item .menu__text{' +
-            'min-width:0;flex:1 1 auto;white-space:nowrap;' +
+            'min-width:0;max-width:100%;flex:1 1 auto;white-space:nowrap;' +
             'overflow:hidden;text-overflow:ellipsis;}';
         document.head.appendChild(style);
     }
@@ -2249,7 +2252,8 @@
             if (rezkaNavButtons[item.key]) return;
             try {
                 var icon = '<svg width="24" height="24" viewBox="0 0 24 24" ' +
-                    'fill="none" stroke="currentColor" stroke-width="2">' +
+                    'fill="none" stroke="currentColor" stroke-width="2" ' +
+                    'stroke-linecap="round" stroke-linejoin="round">' +
                     item.icon + '</svg>';
                 var button = Lampa.Menu.addButton(icon, item.title, item.open);
                 if (button && button.addClass) button.addClass('rezka-nav-item');
