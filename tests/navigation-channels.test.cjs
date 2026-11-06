@@ -188,6 +188,12 @@ test('sidebar layout rule preserves native Lampa font and prevents wrapping',()=
   assert.match(source,/\.menu \.menu__item\.rezka-nav-item \.menu__text/);
   assert.match(source,/white-space:nowrap/);
   assert.match(source,/text-overflow:ellipsis/);
+  const sidebarCss = source.split("style.id = 'rezka-nav-style';")[1]
+    .split('document.head.appendChild(style);')[0];
+  assert.match(sidebarCss,/overflow-x:clip/);
+  assert.match(sidebarCss,/overflow-y:visible/);
+  assert.match(sidebarCss,/overflow:visible/);
+  assert.doesNotMatch(sidebarCss,/overflow:hidden/);
   assert.doesNotMatch(source,/\.menu \.menu__item\.rezka-nav-item \.menu__text[^;]*font-size/);
 });
 
