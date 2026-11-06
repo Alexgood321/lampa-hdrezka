@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'rezka.js'
+      - '**/*.js'
+      - 'lampa-plugins.json'
       - '.github/workflows/notify-store.yml'
   workflow_dispatch:
 
