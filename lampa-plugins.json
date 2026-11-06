@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "name": "HDREZKA",
+      "path": "rezka.js",
+      "categories": [
+        "Мои",
+        "Онлайн-просмотр"
+      ],
+      "author": "Alexgood321",
+      "descr": "Интеграция онлайн-просмотра и личных разделов HDRezka"
+    }
+  ]
+}
