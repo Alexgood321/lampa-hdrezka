@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.7.5',
+        version: '1.7.6',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -2181,8 +2181,8 @@
         });
     }
 
-    // Keep native Lampa typography; only prevent multiline collisions
-    // in the narrow mobile sidebar, allowing ellipsis as a last resort.
+    // Keep native Lampa typography and allow glyphs to extend vertically.
+    // Clip only the horizontal axis: overflow:hidden cut off text descenders on iOS.
     function rezkaNavStyle() {
         if (typeof document === 'undefined' || !document.head ||
             document.getElementById('rezka-nav-style')) return;
@@ -2191,7 +2191,7 @@
         style.textContent =
             '.menu .menu__item.rezka-nav-item .menu__text{' +
             'min-width:0;max-width:100%;flex:1 1 auto;white-space:nowrap;' +
-            'overflow:hidden;text-overflow:ellipsis;}';
+            'overflow:visible;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis;}';
         document.head.appendChild(style);
     }
 
