@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.7.7',
+        version: '1.7.8',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -1132,6 +1132,20 @@
         else container.append(source);
     }
 
+    // One font-independent HD glyph for the card and the native source menu.
+    function rezkaHDIcon(sourceBadge) {
+        return '<svg width="24" height="24" viewBox="0 0 24 24" ' +
+            'class="' + (sourceBadge ? 'rezka-source-icon' : 'button__icon') + '" ' +
+            'fill="none" aria-hidden="true" focusable="false" ' +
+            'xmlns="http://www.w3.org/2000/svg">' +
+            (sourceBadge ?
+                '<rect x="0.5" y="2" width="23" height="20" rx="4" fill="#c62828"/>' : '') +
+            '<path d="M4 7v10M4 12h6M10 7v10M14 7h2a5 5 0 0 1 0 10h-2V7z" ' +
+            'stroke="' + (sourceBadge ? '#fff' : 'currentColor') + '" ' +
+            'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>' +
+            '</svg>';
+    }
+
     function addCardButton() {
         var styleId = 'rezka-plugin-style';
         if (!document.getElementById(styleId)) {
@@ -1160,10 +1174,7 @@
             if (btnContainer.length) {
                 var cardBtn = root.find('.view--rezka');
                 if (!cardBtn.length) {
-                    var label = '<svg class="button__icon" width="22" height="22" ' +
-                        'viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                        '<path d="M9 6.5l9 5.5-9 5.5V6.5z" fill="currentColor"/></svg>' +
-                        '<span>HDREZKA</span>';
+                    var label = rezkaHDIcon(false) + '<span>HDREZKA</span>';
                     cardBtn = $('<div class="full-start__button selector view--rezka">' +
                         label + '</div>');
                     cardBtn.on('hover:enter', function () { openRezka(movie); });
@@ -1178,10 +1189,7 @@
             if (sourceContainer.length) {
                 var sourceBtn = sourceContainer.children('.view--rezka-source');
                 if (!sourceBtn.length) {
-                    var sourceIcon = '<svg width="24" height="24" viewBox="0 0 24 24" ' +
-                        'xmlns="http://www.w3.org/2000/svg">' +
-                        '<circle cx="12" cy="12" r="11" fill="#c62828"/>' +
-                        '<path d="M10 7l7 5-7 5V7z" fill="#fff"/></svg>';
+                    var sourceIcon = rezkaHDIcon(true);
                     sourceBtn = $('<div class="full-start__button selector view--rezka-source">' +
                         sourceIcon + '<span>HDREZKA</span></div>');
                     sourceBtn.on('hover:enter', function () { openRezka(movie); });
