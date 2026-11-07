@@ -21,7 +21,7 @@
      * ==================================================== */
     var manifest = {
         type: 'video',
-        version: '1.7.6',
+        version: '1.7.7',
         name: 'HDREZKA',
         description: 'Просмотр и коллекции избранного HDRezka',
         component: 'rezka_online'
@@ -38,7 +38,9 @@
         status:   'rezka_status',     // 'logged' | 'guest' | 'error:<msg>'
         proxy:    'rezka_proxy_url',  // legacy CORS proxy
         bridge:   'rezka_bridge_url', // own HTTPS bridge
-        token:    'rezka_bridge_token' // access token, never shown in settings
+        token:    'rezka_bridge_token', // access token, never shown in settings
+        cardButton: 'rezka_show_card_button',
+        sourceButton: 'rezka_show_source_button'
     };
 
     /* Безопасный вызов Lampa.Storage.add — в разных билдах Lampa
@@ -54,6 +56,8 @@
         defaults[STORAGE.proxy]    = '';
         defaults[STORAGE.bridge]   = '';
         defaults[STORAGE.token]    = '';
+        defaults[STORAGE.cardButton] = true;
+        defaults[STORAGE.sourceButton] = true;
         // Миграция с 1.0.x: ранее сохранялись пароль и cookie чужого origin.
         if (!Lampa.Storage.get('rezka_migrated_110', false)) {
             Lampa.Storage.set(STORAGE.cookie, '');
@@ -1083,60 +1087,116 @@
     }
 
     /* ====================================================
-     *  Кнопка «HDREZKA» прямо в карточке фильма (рядом со «Смотреть»)
-     *  Срабатывает на событии full → complite, когда карточка отрисована.
+     *  HDRezka card shortcut and native Lampa "Источник" entry.
+     *  Both are independent; the native "Смотреть" button stays first.
+     *  Lampa builds the source menu from .buttons--container.
      * ==================================================== */
+    function rezkaButtonEnabled(key) {
+        var value = Lampa.Storage.get(key, true);
+        return value !== false && value !== 'false' && value !== 0 && value !== '0';
+    }
+
+    function rezkaApplyButtonVisibility(key) {
+        if (typeof $ !== 'function') return;
+        var selector = key === STORAGE.cardButton ?
+            '.full-start-new__buttons .view--rezka, .full-start__buttons .view--rezka' :
+            '.buttons--container > .view--rezka-source';
+        $(selector).toggleClass('hide', !rezkaButtonEnabled(key));
+    }
+
+    function rezkaPlaceSource(container, source) {
+        // Other plugins may insert "Продолжить" in any position. Match both
+        // the usual class and the displayed title, without relying on a hash.
+        var resume = null;
+        var online = null;
+        var trailer = null;
+        container.children('.full-start__button').each(function () {
+            var item = $(this);
+            if (item.hasClass('view--rezka-source')) return;
+            var title = String(item.text() || '').trim();
+            if (item.hasClass('view--continue') ||
+                item.hasClass('button--continue') ||
+                /продолжить/i.test(title)) {
+                resume = item;
+            } else if (!online && (/^онлайн/i.test(title) ||
+                item.hasClass('view--online'))) {
+                online = item;
+            } else if (!trailer && (/^трейлер/i.test(title) ||
+                item.hasClass('view--trailer'))) {
+                trailer = item;
+            }
+        });
+        if (resume) resume.after(source);
+        else if (online) online.before(source);
+        else if (trailer) trailer.before(source);
+        else container.append(source);
+    }
+
     function addCardButton() {
-        // Inline-стили для кнопки (Lampa использует свои классы, мы
-        // дополнительно добавляем минимальный CSS на случай отсутствия темы)
         var styleId = 'rezka-plugin-style';
         if (!document.getElementById(styleId)) {
             var st = document.createElement('style');
             st.id = styleId;
-            st.innerHTML =
-                '.full-start__button.view--rezka{background:linear-gradient(135deg,#1d8a3a,#0f5e25);color:#fff}' +
-                '.full-start-new__buttons .view--rezka,.full-start__buttons .view--rezka{order:-1}' +
+            st.textContent =
+                '.full-start-new__buttons .view--rezka,.full-start__buttons .view--rezka{' +
+                'background:linear-gradient(135deg,#d63840,#af1723)!important;' +
+                'color:#fff!important;order:0!important}' +
+                '.full-start-new__buttons .view--rezka.focus,.full-start__buttons .view--rezka.focus{' +
+                'background:#de4048!important;color:#fff!important}' +
                 '.view--rezka .button__icon{margin-right:.4em}';
             document.head.appendChild(st);
         }
 
         Lampa.Listener.follow('full', function (e) {
-            if (e.type !== 'complite') return;
+            if (!e || e.type !== 'complite' || !e.object ||
+                !e.object.activity || !e.object.activity.render) return;
 
             var root = e.object.activity.render();
-            // Поддерживаем разные темы карточки: новую и классическую
+            if (!root || !root.find) return;
+            var movie = e.data && e.data.movie || e.object.card || {};
             var btnContainer = root.find('.full-start-new__buttons');
             if (!btnContainer.length) btnContainer = root.find('.full-start__buttons');
-            if (!btnContainer.length) return;
-            if (root.find('.view--rezka').length) return; // уже добавлена
 
-            var label = '<svg class="button__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                '<path d="M9 8l6 4-6 4V8z" fill="currentColor"/></svg>' +
-                '<span>HDREZKA</span>';
-
-            var btn = $(
-                '<div class="full-start__button selector view--online view--rezka">' + label + '</div>'
-            );
-
-            btn.on('hover:enter', function () { openRezka(e.data.movie); });
-
-            // Помещаем кнопку ПЕРВОЙ — слева от «Смотреть» / «Онлайн»
-            btnContainer.prepend(btn);
-
-            // Делаем эту кнопку активной по умолчанию (фокус под указателем).
-            // Lampa перестроит навигацию после prepend, поэтому нужно немного подождать.
-            setTimeout(function () {
-                try {
-                    if (Navigator && Navigator.focused) {
-                        Navigator.focused(btn[0]);
-                    } else {
-                        Lampa.Controller.collectionFocus(btn[0], root);
-                    }
-                } catch (err) {
-                    // На некоторых сборках Navigator может быть недоступен
-                    btn.addClass('focus');
+            if (btnContainer.length) {
+                var cardBtn = root.find('.view--rezka');
+                if (!cardBtn.length) {
+                    var label = '<svg class="button__icon" width="22" height="22" ' +
+                        'viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                        '<path d="M9 6.5l9 5.5-9 5.5V6.5z" fill="currentColor"/></svg>' +
+                        '<span>HDREZKA</span>';
+                    cardBtn = $('<div class="full-start__button selector view--rezka">' +
+                        label + '</div>');
+                    cardBtn.on('hover:enter', function () { openRezka(movie); });
                 }
-            }, 50);
+                var play = btnContainer.find('.button--play').first();
+                if (play.length) play.after(cardBtn);
+                else btnContainer.prepend(cardBtn);
+                cardBtn.toggleClass('hide', !rezkaButtonEnabled(STORAGE.cardButton));
+            }
+
+            var sourceContainer = root.find('.buttons--container').first();
+            if (sourceContainer.length) {
+                var sourceBtn = sourceContainer.children('.view--rezka-source');
+                if (!sourceBtn.length) {
+                    var sourceIcon = '<svg width="24" height="24" viewBox="0 0 24 24" ' +
+                        'xmlns="http://www.w3.org/2000/svg">' +
+                        '<circle cx="12" cy="12" r="11" fill="#c62828"/>' +
+                        '<path d="M10 7l7 5-7 5V7z" fill="#fff"/></svg>';
+                    sourceBtn = $('<div class="full-start__button selector view--rezka-source">' +
+                        sourceIcon + '<span>HDREZKA</span></div>');
+                    sourceBtn.on('hover:enter', function () { openRezka(movie); });
+                }
+                rezkaPlaceSource(sourceContainer, sourceBtn);
+                sourceBtn.toggleClass('hide', !rezkaButtonEnabled(STORAGE.sourceButton));
+                // One deferred pass covers source buttons registered by other
+                // extensions later in the same "full:complite" notification.
+                setTimeout(function () {
+                    if (sourceBtn.closest('.buttons--container').length) {
+                        rezkaPlaceSource(sourceContainer, sourceBtn);
+                    }
+                }, 0);
+            }
+            // Do not steal focus from the native play button.
         });
     }
 
@@ -2337,6 +2397,27 @@
         return '⚪ Не авторизованы';
     }
 
+    function rezkaAddButtonSettings() {
+        [
+            { key: STORAGE.cardButton,
+              title: 'Кнопка HDRezka на карточке',
+              description: 'Красная кнопка после штатной кнопки «Смотреть»' },
+            { key: STORAGE.sourceButton,
+              title: 'HDRezka в меню «Источник»',
+              description: 'Отдельный пункт после «Продолжить»' }
+        ].forEach(function (item) {
+            Lampa.SettingsApi.addParam({
+                component: 'rezka',
+                param: { name: item.key, type: 'trigger', default: true },
+                field: { name: item.title, description: item.description },
+                onChange: function (enabled) {
+                    Lampa.Storage.set(item.key, enabled === true || enabled === 'true');
+                    rezkaApplyButtonVisibility(item.key);
+                }
+            });
+        });
+    }
+
     function addSettings() {
         Lampa.SettingsApi.addComponent({
             component: 'rezka',
@@ -2345,6 +2426,8 @@
                 '<path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="2"/>' +
                 '<path d="M9 8l6 4-6 4V8z" fill="currentColor"/></svg>'
         });
+
+        rezkaAddButtonSettings();
 
         Lampa.SettingsApi.addParam({
             component: 'rezka',
