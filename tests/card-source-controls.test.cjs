@@ -164,6 +164,22 @@ test('source is a native item immediately after Continue and before Online',()=>
   assert.equal(h.sources.items.filter(n=>n.classes.has('view--rezka-source')).length,1);
 });
 
+test('both placements use matching vector HD letters rather than Play triangles',()=>{
+  const h=setup();h.emit();
+  const card=h.card().markup;
+  const source=h.source().markup;
+  const glyph='M4 7v10M4 12h6M10 7v10M14 7h2a5 5 0 0 1 0 10h-2V7z';
+  assert.ok(card.includes(glyph));
+  assert.ok(source.includes(glyph));
+  assert.match(card,/stroke="currentColor"/);
+  assert.match(source,/stroke="#fff"/);
+  assert.match(source,/fill="#c62828"/);
+  assert.match(card,/class="button__icon"/);
+  assert.match(source,/class="rezka-source-icon"/);
+  assert.doesNotMatch(card,/M9 6\.5l9 5\.5-9 5\.5/);
+  assert.doesNotMatch(source,/M10 7l7 5-7 5/);
+});
+
 test('independent settings hide either location without hiding the other',()=>{
   const h=setup();h.emit();
   const cardField=h.fields.find(f=>f.param.name==='rezka_show_card_button');
